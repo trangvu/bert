@@ -17,9 +17,7 @@ EXP_NAME=${2:-glue_exp}
 TASKS=( MNLI QQP QNLI "SST-2" CoLA "STS-B" MRPC RTE WNLI )
 
 TASK_NAME=${TASKS[$index]}
-VOCAB_FILE="${DATA_DIR}/vocab.txt"
 MODEL_NAME="bert_model.ckpt"
-BERT_BASE_DIR=$DATA_DIR
 OUTPUT=$OUT_DIR/$EXP_NAME/"run-"$DATE/$TASK_NAME
 
 set -x
