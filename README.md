@@ -366,7 +366,7 @@ few minutes on most GPUs.
 export BERT_BASE_DIR=/path/to/bert/uncased_L-12_H-768_A-12
 export GLUE_DIR=/path/to/glue
 
-python run_classifier.py \
+python3 run_classifier.py \
   --task_name=MRPC \
   --do_train=true \
   --do_eval=true \

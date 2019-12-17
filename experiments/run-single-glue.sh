@@ -4,7 +4,8 @@ module load cudnn/7.6.5-cuda10.1
 #module load anaconda/2019.03-Python3.7-gcc5
 #conda activate jiant
 module load gcc/5.4.0
-
+export BERT_BASE_DIR=/scratch/da33/trang/masked-lm/models/bert_base_uncased
+export GLUE_DIR=/project/da33/data_nlp/natural_language_understanding
 ROOT_DIR=`cd ../.. &&pwd`
 DATE=`date '+%Y%m%d-%H%M%S'`
 SRC_PATH=$ROOT_DIR'/bert'
