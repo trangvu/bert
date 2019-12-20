@@ -787,13 +787,7 @@ def main(_):
       "cola": ColaProcessor,
       "mnli": MnliProcessor,
       "mrpc": MrpcProcessor,
-      "mnli": XnliProcessor,
-      "sst-2": ColaProcessor,
-      "qqp": MrpcProcessor,
-      "qnli": XnliProcessor,
-      "wnli": XnliProcessor,
-      "sts-b": MrpcProcessor,
-      "rte": MrpcProcessor,
+      "xnli": XnliProcessor,
   }
 
   tokenization.validate_case_matches_checkpoint(FLAGS.do_lower_case,
