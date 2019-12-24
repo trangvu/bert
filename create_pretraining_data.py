@@ -20,8 +20,13 @@ from __future__ import print_function
 
 import collections
 import random
+
+from spacy.symbols import IDS
+
 import tokenization
 import tensorflow as tf
+import spacy
+from spacy.lang.en.tag_map import TAG_MAP
 
 flags = tf.flags
 
@@ -36,6 +41,9 @@ flags.DEFINE_string(
 
 flags.DEFINE_string("vocab_file", None,
                     "The vocabulary file that the BERT model was trained on.")
+
+flags.DEFINE_string("dev_file", None,
+                    "The dev file that the BERT model was trained on.")
 
 flags.DEFINE_bool(
     "do_lower_case", True,
@@ -69,12 +77,13 @@ class TrainingInstance(object):
   """A single training instance (sentence pair)."""
 
   def __init__(self, tokens, segment_ids, masked_lm_positions, masked_lm_labels,
-               is_random_next):
+               is_random_next, pos_tags):
     self.tokens = tokens
     self.segment_ids = segment_ids
     self.is_random_next = is_random_next
     self.masked_lm_positions = masked_lm_positions
     self.masked_lm_labels = masked_lm_labels
+    self.pos_tags = pos_tags
 
   def __str__(self):
     s = ""
@@ -86,12 +95,13 @@ class TrainingInstance(object):
         [str(x) for x in self.masked_lm_positions]))
     s += "masked_lm_labels: %s\n" % (" ".join(
         [tokenization.printable_text(x) for x in self.masked_lm_labels]))
+    s += "pos_tags: %s\n" % (" ".join(
+      [x for x in self.pos_tags]))
     s += "\n"
     return s
 
   def __repr__(self):
     return self.__str__()
-
 
 def write_instance_to_example_files(instances, tokenizer, max_seq_length,
                                     max_predictions_per_seq, output_files):
@@ -105,6 +115,12 @@ def write_instance_to_example_files(instances, tokenizer, max_seq_length,
   total_written = 0
   for (inst_index, instance) in enumerate(instances):
     input_ids = tokenizer.convert_tokens_to_ids(instance.tokens)
+    tags_ids = []
+    for tag_id in instance.pos_tags:
+      if tag_id in IDS:
+        tags_ids.append(IDS[tag_id])
+      else:
+        tags_ids.append(-1)
     input_mask = [1] * len(input_ids)
     segment_ids = list(instance.segment_ids)
     assert len(input_ids) <= max_seq_length
@@ -113,10 +129,12 @@ def write_instance_to_example_files(instances, tokenizer, max_seq_length,
       input_ids.append(0)
       input_mask.append(0)
       segment_ids.append(0)
+      tags_ids.append(-1)
 
     assert len(input_ids) == max_seq_length
     assert len(input_mask) == max_seq_length
     assert len(segment_ids) == max_seq_length
+    assert len(tags_ids) == max_seq_length
 
     masked_lm_positions = list(instance.masked_lm_positions)
     masked_lm_ids = tokenizer.convert_tokens_to_ids(instance.masked_lm_labels)
@@ -137,6 +155,7 @@ def write_instance_to_example_files(instances, tokenizer, max_seq_length,
     features["masked_lm_ids"] = create_int_feature(masked_lm_ids)
     features["masked_lm_weights"] = create_float_feature(masked_lm_weights)
     features["next_sentence_labels"] = create_int_feature([next_sentence_label])
+    features["tag_ids"] = create_int_feature(tags_ids)
 
     tf_example = tf.train.Example(features=tf.train.Features(feature=features))
 
@@ -176,11 +195,49 @@ def create_float_feature(values):
   return feature
 
 
+def infer_tags(tokens, pos_tags, spacy_tokens):
+    '''
+    Greedy assign spacy inferred POS tags to wordpiece token
+    :param tokens:
+    :param pos_tags:
+    :param spacy_tokens:
+    :return:
+    '''
+    tags = []
+    num_token = len(tokens)
+    num_tags = len(pos_tags)
+    i = 0
+    j = 0
+    tok_cnt = 0
+    spacy_tok_cnt = 0
+    while i < num_token:
+        tok = tokens[i].lower()
+        if '##' in tok:
+            tok = tok[2:]
+        spacy_tok = spacy_tokens[j].lower()
+        tags.append(pos_tags[j])
+        tok_cnt += len(tok)
+        new_spacy_tok_cnt = spacy_tok_cnt + len(spacy_tok)
+        if tok_cnt >= new_spacy_tok_cnt:
+            j += 1
+            if j >= num_tags:
+                j = num_tags - 1
+            spacy_tok_cnt = new_spacy_tok_cnt
+        i += 1
+
+    return tags
+
+
 def create_training_instances(input_files, tokenizer, max_seq_length,
                               dupe_factor, short_seq_prob, masked_lm_prob,
                               max_predictions_per_seq, rng):
   """Create `TrainingInstance`s from raw text."""
+  nlp = spacy.load("en_core_web_sm")
   all_documents = [[]]
+  all_tags = [[]]
+  cur_document = []
+  cur_tags = []
+  cur_idx = 0
 
   # Input file format:
   # (1) One sentence per line. These should ideally be actual sentences, not
@@ -195,36 +252,74 @@ def create_training_instances(input_files, tokenizer, max_seq_length,
         if not line:
           break
         line = line.strip()
+        doc = nlp(line)
+        pos = [token.pos_ for token in doc]
+        txt = [token.text for token in doc]
 
         # Empty lines are used as document delimiters
         if not line:
-          all_documents.append([])
+          if len(cur_document) > 0:
+            all_documents.append(cur_document)
+            all_tags.append(cur_tags)
+            cur_idx += 1
+            cur_document = []
+            cur_tags = []
+            if (cur_idx % 1000) == 0:
+              tf.logging.info("Load data progress so far: {} documents read".format(cur_idx))
         tokens = tokenizer.tokenize(line)
         if tokens:
-          all_documents[-1].append(tokens)
+          tags = infer_tags(tokens, pos, txt)
+          cur_document.append(tokens)
+          cur_tags.append(tags)
 
   # Remove empty documents
+  if len(cur_document) > 0:
+    all_documents.append(cur_document)
+    all_tags.append(cur_tags)
+    cur_idx += 1
   all_documents = [x for x in all_documents if x]
-  rng.shuffle(all_documents)
+  all_tags = [x for x in all_tags if x]
 
+  doc_indices = list(range(cur_idx))
+  rng.shuffle(doc_indices)
   vocab_words = list(tokenizer.vocab.keys())
   instances = []
+
+  dev_size = 1
+  dev_indices = doc_indices[0:dev_size]
+  train_indices = doc_indices[dev_size:]
+  dev_instances = []
+  dev_documents = [all_documents[idx] for idx in dev_indices]
+
   for _ in range(dupe_factor):
-    for document_index in range(len(all_documents)):
+    for document_index in range(len(dev_indices)):
+      dev_instances.extend(
+          create_instances_from_document(
+              dev_documents, document_index, max_seq_length, short_seq_prob,
+              masked_lm_prob, max_predictions_per_seq, vocab_words, rng))
+
+  rng.shuffle(dev_instances)
+
+  for _ in range(dupe_factor):
+    for document_index in train_indices:
       instances.extend(
           create_instances_from_document(
               all_documents, document_index, max_seq_length, short_seq_prob,
-              masked_lm_prob, max_predictions_per_seq, vocab_words, rng))
+              masked_lm_prob, max_predictions_per_seq, vocab_words, rng, no_masking=True, all_tags=all_tags))
 
   rng.shuffle(instances)
-  return instances
+  return dev_instances, instances
 
 
 def create_instances_from_document(
     all_documents, document_index, max_seq_length, short_seq_prob,
-    masked_lm_prob, max_predictions_per_seq, vocab_words, rng):
+    masked_lm_prob, max_predictions_per_seq, vocab_words, rng, no_masking=False, all_tags=None):
   """Creates `TrainingInstance`s for a single document."""
-  document = all_documents[document_index]
+  if all_tags:
+    document = list(zip(all_documents[document_index], all_tags[document_index]))
+  else:
+    tags = [-1] * len(all_documents[document_index])
+    document = list(zip(all_documents[document_index], tags))
 
   # Account for [CLS], [SEP], [SEP]
   max_num_tokens = max_seq_length - 3
@@ -262,10 +357,19 @@ def create_instances_from_document(
           a_end = rng.randint(1, len(current_chunk) - 1)
 
         tokens_a = []
+        tags_a = []
         for j in range(a_end):
-          tokens_a.extend(current_chunk[j])
+          tokens_a.extend(current_chunk[j][0])
+          if all_tags is None:
+            tmptags = [-1] * len(current_chunk[j][0])
+            tags_a.extend(tmptags)
+          else:
+            tags_a.extend(current_chunk[j][1])
+
+        assert len(tokens_a) == len(tags_a), "Tokens and tags length should be equal"
 
         tokens_b = []
+        tags_b = []
         # Random next
         is_random_next = False
         if len(current_chunk) == 1 or rng.random() < 0.5:
@@ -282,9 +386,17 @@ def create_instances_from_document(
               break
 
           random_document = all_documents[random_document_index]
+          if all_tags is None:
+            random_tags = [-1] * len(random_document)
+          else:
+            random_tags = all_tags[random_document_index]
           random_start = rng.randint(0, len(random_document) - 1)
           for j in range(random_start, len(random_document)):
             tokens_b.extend(random_document[j])
+            if all_tags is None:
+              tags_b.extend([-1] * len(random_document[j]))
+            else:
+              tags_b.extend(random_tags[j])
             if len(tokens_b) >= target_b_length:
               break
           # We didn't actually use these segments so we "put them back" so
@@ -295,38 +407,56 @@ def create_instances_from_document(
         else:
           is_random_next = False
           for j in range(a_end, len(current_chunk)):
-            tokens_b.extend(current_chunk[j])
+            tokens_b.extend(current_chunk[j][0])
+            if all_tags is None:
+              tags_b.extend([-1] * len(current_chunk[j][0]))
+            else:
+              tags_b.extend(current_chunk[j][1])
         truncate_seq_pair(tokens_a, tokens_b, max_num_tokens, rng)
+        truncate_seq_pair(tags_a, tags_b, max_num_tokens, rng)
+        assert len(tokens_b) == len(tags_b), "Tokens and tags length should be equal"
 
         assert len(tokens_a) >= 1
         assert len(tokens_b) >= 1
 
         tokens = []
+        tags = []
         segment_ids = []
         tokens.append("[CLS]")
+        tags.append("[CLS]")
         segment_ids.append(0)
-        for token in tokens_a:
+        for token, tag in zip(tokens_a, tags_a):
           tokens.append(token)
+          tags.append(tag)
           segment_ids.append(0)
 
         tokens.append("[SEP]")
+        tags.append("[SEP]")
         segment_ids.append(0)
 
-        for token in tokens_b:
+        for token, tag in zip(tokens_b, tags_b):
           tokens.append(token)
+          tags.append(tag)
           segment_ids.append(1)
         tokens.append("[SEP]")
+        tags.append("[SEP]")
         segment_ids.append(1)
 
-        (tokens, masked_lm_positions,
-         masked_lm_labels) = create_masked_lm_predictions(
-             tokens, masked_lm_prob, max_predictions_per_seq, vocab_words, rng)
+        if no_masking:
+          (tokens, masked_lm_positions,
+           masked_lm_labels) = create_masked_lm_predictions(
+            tokens, 0, 0, vocab_words, rng)
+        else:
+          (tokens, masked_lm_positions,
+           masked_lm_labels) = create_masked_lm_predictions(
+               tokens, masked_lm_prob, max_predictions_per_seq, vocab_words, rng)
         instance = TrainingInstance(
             tokens=tokens,
             segment_ids=segment_ids,
             is_random_next=is_random_next,
             masked_lm_positions=masked_lm_positions,
-            masked_lm_labels=masked_lm_labels)
+            masked_lm_labels=masked_lm_labels,
+            pos_tags=tags)
         instances.append(instance)
       current_chunk = []
       current_length = 0
@@ -448,17 +578,22 @@ def main(_):
     tf.logging.info("  %s", input_file)
 
   rng = random.Random(FLAGS.random_seed)
-  instances = create_training_instances(
+  dev_instances, train_instances = create_training_instances(
       input_files, tokenizer, FLAGS.max_seq_length, FLAGS.dupe_factor,
       FLAGS.short_seq_prob, FLAGS.masked_lm_prob, FLAGS.max_predictions_per_seq,
       rng)
+
+  dev_file = FLAGS.dev_file
+  tf.logging.info("*** Writing to dev file ***")
+  tf.logging.info("  %s", dev_file)
+  write_instance_to_example_files(dev_instances, tokenizer, FLAGS.max_seq_length,
+                                  FLAGS.max_predictions_per_seq, [dev_file])
 
   output_files = FLAGS.output_file.split(",")
   tf.logging.info("*** Writing to output files ***")
   for output_file in output_files:
     tf.logging.info("  %s", output_file)
-
-  write_instance_to_example_files(instances, tokenizer, FLAGS.max_seq_length,
+  write_instance_to_example_files(train_instances, tokenizer, FLAGS.max_seq_length,
                                   FLAGS.max_predictions_per_seq, output_files)
 
 

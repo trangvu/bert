@@ -2,9 +2,9 @@
 ROOT_DIR=`cd ../../../.. &&pwd`
 #module load python/3.6.2
 #source $ROOT_DIR/apex_env/bin/activate
-mosesdecoder=/home/xvuthith/da33_scratch/tools/mosesdecoder
+mosesdecoder=/home/xvuthith/da33/tools/mosesdecoder
 
-DATA_DIR="/home/xvuthith/da33_scratch/trang/masked-lm/wikidump/en-raw"
+DATA_DIR="/home/xvuthith/da33/trang/masked-lm/wikidump/en-raw"
 LANGUAGE="en"
 for index in 0 1 2 3 4 5 6 7 8 9 10 11 12 13 ; do
   echo "Process "$index
