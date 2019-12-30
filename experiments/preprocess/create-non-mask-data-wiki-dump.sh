@@ -2,7 +2,7 @@
 
 ROOT_DIR=`cd ../../../.. &&pwd`
 DATE=`date '+%Y%m%d-%H%M%S'`
-SRC_PATH=$ROOT_DIR'/bert-pertub'
+SRC_PATH=$ROOT_DIR'/bert'
 DATA_ROOT="/home/xvuthith/da33/trang/masked-lm"
 DATA_DIR=$DATA_ROOT"/data"
 #
