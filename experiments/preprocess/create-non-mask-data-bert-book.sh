@@ -8,6 +8,8 @@ DATA_ROOT="/scratch/da33/trang/masked-lm"
 DATA_DIR=$DATA_ROOT"/data"
 
 module load python/3.6.2
+module load cuda/9.0
+module load cudnn/7.3.0-cuda9
 source $ROOT_DIR/env/bin/activate
 
 INPUT="bookcorpus_tok"
