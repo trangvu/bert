@@ -4,7 +4,7 @@
 ROOT_DIR=`cd ../../../.. &&pwd`
 DATE=`date '+%Y%m%d-%H%M%S'`
 SRC_PATH=$ROOT_DIR'/bert-pertub'
-DATA_ROOT="/scratch/da33/trang/masked-lm"
+DATA_ROOT="/home/xvuthith/da33/trang/masked-lm"
 DATA_DIR=$DATA_ROOT"/data"
 
 module load python/3.6.2
