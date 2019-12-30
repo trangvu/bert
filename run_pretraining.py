@@ -125,6 +125,7 @@ def model_fn_builder(bert_config, init_checkpoint, learning_rate,
     masked_lm_ids = features["masked_lm_ids"]
     masked_lm_weights = features["masked_lm_weights"]
     next_sentence_labels = features["next_sentence_labels"]
+    tag_ids = features["tag_ids"]
 
     is_training = (mode == tf.estimator.ModeKeys.TRAIN)
 
@@ -347,6 +348,8 @@ def input_fn_builder(input_files,
             tf.FixedLenFeature([max_predictions_per_seq], tf.float32),
         "next_sentence_labels":
             tf.FixedLenFeature([1], tf.int64),
+        "tag_ids":
+            tf.FixedLenFeature([max_seq_length], tf.int64),
     }
 
     # For training, we want a lot of parallel reading and shuffling.

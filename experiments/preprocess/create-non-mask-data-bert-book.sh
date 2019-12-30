@@ -12,33 +12,26 @@ source $ROOT_DIR/env/bin/activate
 
 INPUT="bookcorpus_tok"
 DATASET="bookcorpus"
-OUTPUT_FILE="train"
-VOCAB_FILE="${DATA_DIR}/bert_vocab_uncase.txt"
+
+VOCAB_FILE="/home/xvuthith/da33/trang/masked-lm/pretrained/cased_L-12_H-768_A-12/vocab.txt"
 index=$1
 seq_len=$2
 
 echo "Processing shard ${index}"
 INPUT_FILE="${DATA_DIR}/sharded_bookcorpus/${INPUT}_${index}"
-OUT_DIR="${DATA_ROOT}/train/bookcorpus-${seq_len}/${DATASET}-shard-${index}"
-
-mkdir -p "${DATA_ROOT}/train/bookcorpus-${seq_len}"
-set -x
-rm -r -f $OUT_DIR
+OUT_DIR="${DATA_ROOT}/train/bookcorpus-${seq_len}"
+OUTPUT_FILE="train-${index}.tfrecord"
+DEV_FILE="dev-${index}.tfrecord"
+mkdir -p "${DATA_ROOT}/train/wikidump-en-${seq_len}"
 
 cd $SRC_PATH && python3 create_pretraining_data.py \
-  --input_file=$INPUT_FILE \
-  --output_dir=$OUT_DIR \
-  --output_file=$OUTPUT_FILE \
-  --vocab_file=$VOCAB_FILE \
-  --do_lower_case \
-  --max_seq_length=$seq_len \
-  --max_predictions_per_seq=80 \
-  --masked_lm_prob=0.15 \
-  --random_seed=12345 \
-  --dupe_factor=1 \
-  --mask_strategy=none \
-  --max_shard_size=500000 \
-  --dev_size=10 \
-  --meta_dev_size=10 \
-  --dev_file="dev" \
-  --in_memory
+--input_file=$INPUT_FILE \
+--output_file=$OUT_DIR/$OUTPUT_FILE \
+--dev_file=$OUT_DIR/$DEV_FILE \
+--vocab_file=$VOCAB_FILE \
+--do_lower_case=True \
+--max_seq_length=$seq_len \
+--max_predictions_per_seq=80 \
+--masked_lm_prob=0.15 \
+--random_seed=12345 \
+--dupe_factor=1
