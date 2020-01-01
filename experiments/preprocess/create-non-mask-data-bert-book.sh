@@ -4,7 +4,7 @@
 ROOT_DIR=`cd ../../../.. &&pwd`
 DATE=`date '+%Y%m%d-%H%M%S'`
 SRC_PATH=$ROOT_DIR'/bert'
-DATA_ROOT="/home/xvuthith/da33/trang/masked-lm"
+DATA_ROOT="/mnt/lustre/projects/da33/trang/masked-lm"
 DATA_DIR=$DATA_ROOT"/data"
 
 module load python/3.6.2
@@ -15,7 +15,7 @@ source $ROOT_DIR/env/bin/activate
 INPUT="bookcorpus_tok"
 DATASET="bookcorpus"
 
-VOCAB_FILE="/home/xvuthith/da33/trang/masked-lm/pretrained/cased_L-12_H-768_A-12/vocab.txt"
+VOCAB_FILE="/mnt/lustre/projects/da33/trang/masked-lm/pretrained/cased_L-12_H-768_A-12/vocab.txt"
 index=$1
 seq_len=$2
 

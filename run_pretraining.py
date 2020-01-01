@@ -23,6 +23,8 @@ import modeling
 import optimization
 import tensorflow as tf
 
+import tokenization
+
 flags = tf.flags
 
 FLAGS = flags.FLAGS
@@ -40,6 +42,13 @@ flags.DEFINE_string(
 flags.DEFINE_string(
     "output_dir", None,
     "The output directory where the model checkpoints will be written.")
+
+flags.DEFINE_string(
+    "mask_strategy", "random", "Mask strategy"
+)
+
+flags.DEFINE_float("masked_lm_prob", 0.15, "Masked LM probability.")
+
 
 ## Other parameters
 flags.DEFINE_string(
@@ -105,10 +114,20 @@ flags.DEFINE_integer(
     "num_tpu_cores", 8,
     "Only used if `use_tpu` is True. Total number of TPU cores to use.")
 
+def get_special_tokens_mask(labels, pad_id, cls_id, sep_id):
+    cls_mask = tf.constant(labels.shape, cls_id)
+    sep_mask = tf.constant(labels.shape, sep_id)
+    pad_mask = tf.constant(labels.shape, pad_id)
+    cls_indexes = tf.where(cls_mask)  # [[2] [3] [5] [6]], shape=(4, 1)
+    sep_indexes = tf.where(sep_mask)
+    pad_indexes = tf.where(pad_mask)
+    mask = tf.concat([cls_indexes, sep_indexes, pad_indexes])
+    tokens = tf.scatter_update(labels, mask, tf.constant(-1))
+    return tokens
 
 def model_fn_builder(bert_config, init_checkpoint, learning_rate,
                      num_train_steps, num_warmup_steps, use_tpu,
-                     use_one_hot_embeddings):
+                     use_one_hot_embeddings, mask_strategy, masked_lm_prob, pad_id, cls_id, sep_id):
   """Returns `model_fn` closure for TPUEstimator."""
 
   def model_fn(features, labels, mode, params):  # pylint: disable=unused-argument
@@ -137,6 +156,29 @@ def model_fn_builder(bert_config, init_checkpoint, learning_rate,
         token_type_ids=segment_ids,
         use_one_hot_embeddings=use_one_hot_embeddings)
 
+    if mask_strategy == 'random':
+        labels = tf.identity(input_ids)
+        # We sample a few tokens in each sequence for masked-LM training (with probability args.mlm_probability defaults to 0.15 in Bert/RoBERTa)
+        probability_matrix = tf.fill(labels.shape, masked_lm_prob)
+        # tf.logging.info(probability_matrix)
+        special_tokens_mask = [self._tokenizer.get_special_tokens_mask(val, already_has_special_tokens=True) for val in
+                               labels.tolist()]
+        # probability_matrix.masked_fill_(torch.tensor(special_tokens_mask, dtype=torch.bool), value=0.0)
+        # masked_indices = torch.bernoulli(probability_matrix).bool()
+        # labels[~masked_indices] = -1  # We only compute loss on masked tokens
+        #
+        # # 80% of the time, we replace masked input tokens with tokenizer.mask_token ([MASK])
+        # indices_replaced = torch.bernoulli(torch.full(labels.shape, 0.8)).bool() & masked_indices
+        # inputs_ids[indices_replaced] = self._tokenizer.convert_tokens_to_ids(self._tokenizer.mask_token)
+        #
+        # # 10% of the time, we rep4lace masked input tokens with random word
+        # indices_random = torch.bernoulli(torch.full(labels.shape, 0.5)).bool() & masked_indices & ~indices_replaced
+        # random_words = torch.randint(len(self._tokenizer), labels.shape, dtype=torch.long)
+        # random_words = random_words.to(inputs_ids.device)
+        # indices_random = indices_random.to(inputs_ids.device)
+        # inputs_ids[indices_random] = random_words[indices_random]
+    elif mask_strategy == 'pos':
+        tf.logging.info("POS masking")
     (masked_lm_loss,
      masked_lm_example_loss, masked_lm_log_probs) = get_masked_lm_output(
          bert_config, model.get_sequence_output(), model.get_embedding_table(),
@@ -440,6 +482,14 @@ def main(_):
           num_shards=FLAGS.num_tpu_cores,
           per_host_input_for_training=is_per_host))
 
+  tokenizer = tokenization.FullTokenizer(
+      vocab_file=FLAGS.vocab_file, do_lower_case=FLAGS.do_lower_case)
+  special_tokens = tokenizer.convert_tokens_to_ids(["[PAD]","[SEP]", "[CLS]", "[MASK]"])
+  pad_id = special_tokens[0]
+  sep_id = special_tokens[1]
+  cls_id = special_tokens[2]
+  mask_id = special_tokens[3]
+
   model_fn = model_fn_builder(
       bert_config=bert_config,
       init_checkpoint=FLAGS.init_checkpoint,
@@ -447,7 +497,13 @@ def main(_):
       num_train_steps=FLAGS.num_train_steps,
       num_warmup_steps=FLAGS.num_warmup_steps,
       use_tpu=FLAGS.use_tpu,
-      use_one_hot_embeddings=FLAGS.use_tpu)
+      use_one_hot_embeddings=FLAGS.use_tpu,
+      mask_strategy=FLAGS.mask_strategy,
+      masked_lm_prob=FLAGS.masked_lm_prob,
+      pad_id = pad_id,
+      sep_id = sep_id,
+      cls_id = cls_id
+  )
 
   # If TPU is not available, this will fall back to normal Estimator on CPU
   # or GPU.
