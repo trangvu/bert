@@ -23,7 +23,7 @@ mkdir -p "${DATA_ROOT}/train/wikidump-en-${seq_len}"
 
 cd $SRC_PATH && python3 run_pretraining.py \
 --input_file=$INPUT_FILE \
---output_file=$OUT_DIR/$OUTPUT_FILE \
+--output_dir=$OUT_DIR \
 --dev_file=$OUT_DIR/$DEV_FILE \
 --vocab_file=$VOCAB_FILE \
 --do_lower_case=True \
