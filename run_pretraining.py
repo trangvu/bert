@@ -22,6 +22,7 @@ import os
 import modeling
 import optimization
 import tensorflow as tf
+import numpy as np
 
 import tokenization
 
@@ -167,6 +168,35 @@ def model_fn_builder(bert_config, init_checkpoint, learning_rate,
     is_training = (mode == tf.estimator.ModeKeys.TRAIN)
 
     def apply_masking(input_ids, input_mask, masked_lm_ids, masked_lm_positions, tag_ids):
+        if mask_strategy == 'random':
+            shape = input_ids.shape
+            probability_matrix = np.full(shape, masked_lm_prob)
+            print(probability_matrix)
+            labels = input_ids.copy()
+            mask = np.logical_or(np.logical_or(np.equal(labels, sep_id), np.equal(labels, cls_id)), np.equal(labels, pad_id))
+            probability_matrix = np.where(np.logical_not(mask), probability_matrix, 0)
+            print(probability_matrix)
+            masked_indices = np.random.binomial(1, p=probability_matrix)
+            print(masked_indices)
+            id = np.where(masked_indices == 1)
+            print(id)
+
+            # mask_probability_matrix = mask_special_token(probability_matrix, labels, pad_id, cls_id, sep_id)
+            # masked_indices = tf.distributions.Bernoulli(mask_probability_matrix, dtype=tf.bool).sample()
+            # labels[~masked_indices] = -1  # We only compute loss on masked tokens
+            # #
+            # # # 80% of the time, we replace masked input tokens with tokenizer.mask_token ([MASK])
+            # indices_replaced = torch.bernoulli(torch.full(labels.shape, 0.8)).bool() & masked_indices
+            # inputs_ids[indices_replaced] = self._tokenizer.convert_tokens_to_ids(self._tokenizer.mask_token)
+            #
+            # # 10% of the time, we rep4lace masked input tokens with random word
+            # indices_random = torch.bernoulli(torch.full(labels.shape, 0.5)).bool() & masked_indices & ~indices_replaced
+            # random_words = torch.randint(len(self._tokenizer), labels.shape, dtype=torch.long)
+            # random_words = random_words.to(inputs_ids.device)
+            # indices_random = indices_random.to(inputs_ids.device)
+            # inputs_ids[indices_random] = random_words[indices_random]
+        elif mask_strategy == 'pos':
+            tf.logging.info("POS masking")
         return (input_ids, input_mask, masked_lm_ids, masked_lm_positions, tag_ids)
 
     input_ids, input_mask, masked_lm_ids, masked_lm_positions, tag_ids = tf.py_func(apply_masking,
