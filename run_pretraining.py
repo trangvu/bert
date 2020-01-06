@@ -23,6 +23,7 @@ import modeling
 import optimization
 import tensorflow as tf
 import numpy as np
+import itertools
 
 import tokenization
 
@@ -146,7 +147,7 @@ def mask_special_token(probability_matrix, labels, pad_id, cls_id, sep_id):
 
 def model_fn_builder(bert_config, init_checkpoint, learning_rate,
                      num_train_steps, num_warmup_steps, use_tpu,
-                     use_one_hot_embeddings, mask_strategy, masked_lm_prob, pad_id, cls_id, sep_id):
+                     use_one_hot_embeddings, mask_strategy, masked_lm_prob, pad_id, cls_id, sep_id, max_predictions_per_seq):
   """Returns `model_fn` closure for TPUEstimator."""
 
   def model_fn(features, labels, mode, params):  # pylint: disable=unused-argument
@@ -177,9 +178,27 @@ def model_fn_builder(bert_config, init_checkpoint, learning_rate,
             probability_matrix = np.where(np.logical_not(mask), probability_matrix, 0)
             print(probability_matrix)
             masked_indices = np.random.binomial(1, p=probability_matrix)
-            print(masked_indices)
-            id = np.where(masked_indices == 1)
-            print(id)
+            # print(masked_indices)
+            # print(masked_lm_ids)
+            # masked_lm_ids = []
+            # masked_lm_positions = []
+            # for mask, input in zip(masked_indices,input_ids):
+            #     mask_ids = np.where(mask == 1)[0]
+            #     label_ids = input[mask_ids]
+            #
+            #     # print(mask_ids)
+            #     # print(label_ids)
+            #     masked_lm_ids.append(label_ids)
+            #     masked_lm_positions.append(mask_ids)
+            # # masked_lm_ids = np.asarray(masked_lm_ids)
+            # # masked_lm_positions = np.asarray(masked_lm_positions)
+            # masked_lm_ids = np.array(list(itertools.zip_longest(*masked_lm_ids, fillvalue=0)), dtype=np.int32).T
+            # masked_lm_positions = np.array(list(itertools.zip_longest(*masked_lm_positions, fillvalue=0)), dtype=np.int32).T
+            #
+            # print(masked_lm_ids)
+            # print(masked_lm_positions)
+            # labels = np.where(masked_indices == 0, labels, -1)
+            # print(id)
 
             # mask_probability_matrix = mask_special_token(probability_matrix, labels, pad_id, cls_id, sep_id)
             # masked_indices = tf.distributions.Bernoulli(mask_probability_matrix, dtype=tf.bool).sample()
@@ -601,7 +620,8 @@ def main(_):
       masked_lm_prob=FLAGS.masked_lm_prob,
       pad_id = pad_id,
       sep_id = sep_id,
-      cls_id = cls_id
+      cls_id = cls_id,
+      max_predictions_per_seq=FLAGS.max_predictions_per_seq
   )
 
   # If TPU is not available, this will fall back to normal Estimator on CPU
