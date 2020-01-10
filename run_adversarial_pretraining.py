@@ -23,11 +23,11 @@ import modeling
 import optimization
 import tensorflow as tf
 import numpy as np
-from spacy.symbols import IDS
-
+import itertools
 
 import tokenization
 
+from tensorflow.python import debug as tf_debug
 flags = tf.flags
 
 FLAGS = flags.FLAGS
@@ -150,10 +150,6 @@ def model_fn_builder(bert_config, init_checkpoint, learning_rate,
                      use_one_hot_embeddings, mask_strategy, vocab_size, pad_id, cls_id, sep_id, mask_id, max_predictions_per_seq):
   """Returns `model_fn` closure for TPUEstimator."""
 
-  if mask_strategy == 'pos':
-    PREFER_TAGS = ['ADJ', 'VERB', 'NOUN', 'PRON', 'ADV']
-    PREFER_TAG_IDS = [IDS[tag] for tag in PREFER_TAGS]
-
   def model_fn(features, labels, mode, params):  # pylint: disable=unused-argument
     """The `model_fn` for TPUEstimator."""
 
@@ -172,52 +168,40 @@ def model_fn_builder(bert_config, init_checkpoint, learning_rate,
 
     is_training = (mode == tf.estimator.ModeKeys.TRAIN)
 
-
     def apply_masking(input_ids, input_mask, masked_lm_ids, masked_lm_positions, tag_ids):
-
-        shape = input_ids.shape
         if mask_strategy == 'random':
+            shape = input_ids.shape
             probs = np.full(shape, 1)
             probs = np.where(np.logical_not(np.logical_or(np.logical_or(np.equal(input_ids, sep_id), np.equal(input_ids, cls_id)), np.equal(input_ids, pad_id))), probs, 0)
             probs = probs/ probs.sum(axis=1,keepdims=1)
+            seq_len = np.shape(probs)[1]
 
+            masked_lm_ids = []
+            masked_lm_positions = []
+            masked_lm_weights = []
+            for input_id, p in zip(input_ids, probs):
+                mask_ids = np.random.choice(seq_len, max_predictions_per_seq, replace=False, p=p)
+                label_ids = input_id[mask_ids]
+                masked_lm_weight = [1.0] * len(mask_ids)
+                input_id[mask_ids] = mask_id
+
+                # 10% is KEEP and 10% is replaced with random words
+                num_keep = int(0.1 * max_predictions_per_seq)
+                special_indices = np.random.choice(max_predictions_per_seq, num_keep * 2, replace=False)
+                keep_indices = special_indices[:num_keep]
+                random_indices = special_indices[num_keep:]
+                input_id[mask_ids[keep_indices]] = label_ids[keep_indices]
+                random_ids = np.random.choice(vocab_size - 5, num_keep) + 5
+                input_id[mask_ids[random_indices]] = random_ids
+                masked_lm_ids.append(label_ids)
+                masked_lm_positions.append(mask_ids)
+                masked_lm_weights.append(masked_lm_weight)
+
+            masked_lm_ids = np.asarray(masked_lm_ids)
+            masked_lm_positions = np.asarray(masked_lm_positions, dtype='int32')
+            masked_lm_weights = np.asarray(masked_lm_weights, dtype='float32')
         elif mask_strategy == 'pos':
-            probs = np.full(shape, 1)
-            probs = np.where(np.isin(tag_ids, PREFER_TAG_IDS), probs, 5)
-            probs = np.where(np.logical_not(
-                np.logical_or(np.logical_or(np.equal(input_ids, sep_id), np.equal(input_ids, cls_id)),
-                              np.equal(input_ids, pad_id))), probs, 0)
-            probs = probs / probs.sum(axis=1, keepdims=1)
-
-
-        seq_len = np.shape(probs)[1]
-        masked_lm_ids = []
-        masked_lm_positions = []
-        masked_lm_weights = []
-        for input_id, p in zip(input_ids, probs):
-            mask_ids = np.random.choice(seq_len, max_predictions_per_seq, replace=False, p=p)
-            print(p)
-            print(mask_ids)
-            label_ids = input_id[mask_ids]
-            masked_lm_weight = [1.0] * len(mask_ids)
-            input_id[mask_ids] = mask_id
-
-            # 10% is KEEP and 10% is replaced with random words
-            num_keep = int(0.1 * max_predictions_per_seq)
-            special_indices = np.random.choice(max_predictions_per_seq, num_keep * 2, replace=False)
-            keep_indices = special_indices[:num_keep]
-            random_indices = special_indices[num_keep:]
-            input_id[mask_ids[keep_indices]] = label_ids[keep_indices]
-            random_ids = np.random.choice(vocab_size - 5, num_keep) + 5
-            input_id[mask_ids[random_indices]] = random_ids
-            masked_lm_ids.append(label_ids)
-            masked_lm_positions.append(mask_ids)
-            masked_lm_weights.append(masked_lm_weight)
-
-        masked_lm_ids = np.asarray(masked_lm_ids)
-        masked_lm_positions = np.asarray(masked_lm_positions, dtype='int32')
-        masked_lm_weights = np.asarray(masked_lm_weights, dtype='float32')
-
+            tf.logging.info("POS masking")
         return (input_ids, input_mask, masked_lm_ids, masked_lm_positions, masked_lm_weights, tag_ids)
 
     input_ids, input_mask, masked_lm_ids, masked_lm_positions, masked_lm_weights, tag_ids = tf.py_func(apply_masking,
