@@ -147,7 +147,7 @@ def mask_special_token(probability_matrix, labels, pad_id, cls_id, sep_id):
 
 def model_fn_builder(bert_config, init_checkpoint, learning_rate,
                      num_train_steps, num_warmup_steps, use_tpu,
-                     use_one_hot_embeddings, mask_strategy, masked_lm_prob, pad_id, cls_id, sep_id, max_predictions_per_seq):
+                     use_one_hot_embeddings, mask_strategy, vocab_size, pad_id, cls_id, sep_id, mask_id, max_predictions_per_seq):
   """Returns `model_fn` closure for TPUEstimator."""
 
   def model_fn(features, labels, mode, params):  # pylint: disable=unused-argument
@@ -171,55 +171,41 @@ def model_fn_builder(bert_config, init_checkpoint, learning_rate,
     def apply_masking(input_ids, input_mask, masked_lm_ids, masked_lm_positions, tag_ids):
         if mask_strategy == 'random':
             shape = input_ids.shape
-            probability_matrix = np.full(shape, masked_lm_prob)
-            print(probability_matrix)
-            labels = input_ids.copy()
-            mask = np.logical_or(np.logical_or(np.equal(labels, sep_id), np.equal(labels, cls_id)), np.equal(labels, pad_id))
-            probability_matrix = np.where(np.logical_not(mask), probability_matrix, 0)
-            print(probability_matrix)
-            masked_indices = np.random.binomial(1, p=probability_matrix)
-            # print(masked_indices)
-            # print(masked_lm_ids)
-            # masked_lm_ids = []
-            # masked_lm_positions = []
-            # for mask, input in zip(masked_indices,input_ids):
-            #     mask_ids = np.where(mask == 1)[0]
-            #     label_ids = input[mask_ids]
-            #
-            #     # print(mask_ids)
-            #     # print(label_ids)
-            #     masked_lm_ids.append(label_ids)
-            #     masked_lm_positions.append(mask_ids)
-            # # masked_lm_ids = np.asarray(masked_lm_ids)
-            # # masked_lm_positions = np.asarray(masked_lm_positions)
-            # masked_lm_ids = np.array(list(itertools.zip_longest(*masked_lm_ids, fillvalue=0)), dtype=np.int32).T
-            # masked_lm_positions = np.array(list(itertools.zip_longest(*masked_lm_positions, fillvalue=0)), dtype=np.int32).T
-            #
-            # print(masked_lm_ids)
-            # print(masked_lm_positions)
-            # labels = np.where(masked_indices == 0, labels, -1)
-            # print(id)
+            probs = np.full(shape, 1)
+            probs = np.where(np.logical_not(np.logical_or(np.logical_or(np.equal(input_ids, sep_id), np.equal(input_ids, cls_id)), np.equal(input_ids, pad_id))), probs, 0)
+            probs = probs/ probs.sum(axis=1,keepdims=1)
+            seq_len = np.shape(probs)[1]
 
-            # mask_probability_matrix = mask_special_token(probability_matrix, labels, pad_id, cls_id, sep_id)
-            # masked_indices = tf.distributions.Bernoulli(mask_probability_matrix, dtype=tf.bool).sample()
-            # labels[~masked_indices] = -1  # We only compute loss on masked tokens
-            # #
-            # # # 80% of the time, we replace masked input tokens with tokenizer.mask_token ([MASK])
-            # indices_replaced = torch.bernoulli(torch.full(labels.shape, 0.8)).bool() & masked_indices
-            # inputs_ids[indices_replaced] = self._tokenizer.convert_tokens_to_ids(self._tokenizer.mask_token)
-            #
-            # # 10% of the time, we rep4lace masked input tokens with random word
-            # indices_random = torch.bernoulli(torch.full(labels.shape, 0.5)).bool() & masked_indices & ~indices_replaced
-            # random_words = torch.randint(len(self._tokenizer), labels.shape, dtype=torch.long)
-            # random_words = random_words.to(inputs_ids.device)
-            # indices_random = indices_random.to(inputs_ids.device)
-            # inputs_ids[indices_random] = random_words[indices_random]
+            masked_lm_ids = []
+            masked_lm_positions = []
+            masked_lm_weights = []
+            for input_id, p in zip(input_ids, probs):
+                mask_ids = np.random.choice(seq_len, max_predictions_per_seq, replace=False, p=p)
+                label_ids = input_id[mask_ids]
+                masked_lm_weight = [1.0] * len(mask_ids)
+                input_id[mask_ids] = mask_id
+
+                # 10% is KEEP and 10% is replaced with random words
+                num_keep = int(0.1 * max_predictions_per_seq)
+                special_indices = np.random.choice(max_predictions_per_seq, num_keep * 2, replace=False)
+                keep_indices = special_indices[:num_keep]
+                random_indices = special_indices[num_keep:]
+                input_id[mask_ids[keep_indices]] = label_ids[keep_indices]
+                random_ids = np.random.choice(vocab_size - 5, num_keep) + 5
+                input_id[mask_ids[random_indices]] = random_ids
+                masked_lm_ids.append(label_ids)
+                masked_lm_positions.append(mask_ids)
+                masked_lm_weights.append(masked_lm_weight)
+
+            masked_lm_ids = np.asarray(masked_lm_ids)
+            masked_lm_positions = np.asarray(masked_lm_positions, dtype='int32')
+            masked_lm_weights = np.asarray(masked_lm_weights, dtype='float32')
         elif mask_strategy == 'pos':
             tf.logging.info("POS masking")
-        return (input_ids, input_mask, masked_lm_ids, masked_lm_positions, tag_ids)
+        return (input_ids, input_mask, masked_lm_ids, masked_lm_positions, masked_lm_weights, tag_ids)
 
-    input_ids, input_mask, masked_lm_ids, masked_lm_positions, tag_ids = tf.py_func(apply_masking,
-                [raw_input_ids, raw_input_mask, raw_masked_lm_ids, raw_masked_lm_positions, raw_tag_ids], (tf.int32,tf.int32,tf.int32,tf.int32, tf.int32))
+    input_ids, input_mask, masked_lm_ids, masked_lm_positions, masked_lm_weights, tag_ids = tf.py_func(apply_masking,
+                [raw_input_ids, raw_input_mask, raw_masked_lm_ids, raw_masked_lm_positions, raw_tag_ids], (tf.int32,tf.int32,tf.int32,tf.int32,tf.float32,tf.int32))
     input_ids.set_shape(raw_input_ids.get_shape())
     input_mask.set_shape(raw_input_mask.get_shape())
     masked_lm_ids.set_shape(raw_masked_lm_ids.get_shape())
@@ -231,28 +217,6 @@ def model_fn_builder(bert_config, init_checkpoint, learning_rate,
         input_mask=input_mask,
         token_type_ids=segment_ids,
         use_one_hot_embeddings=use_one_hot_embeddings)
-
-    # if mask_strategy == 'random':
-    #     labels = tf.identity(input_ids)
-    #     # We sample a few tokens in each sequence for masked-LM training (with probability args.mlm_probability defaults to 0.15 in Bert/RoBERTa)
-    #     probability_matrix = tf.fill(labels.shape, masked_lm_prob)
-    #     # tf.logging.info(probability_matrix)
-    #     mask_probability_matrix = mask_special_token(probability_matrix, labels, pad_id, cls_id, sep_id)
-    #     masked_indices = tf.distributions.Bernoulli(mask_probability_matrix, dtype=tf.bool).sample()
-    #     labels[~masked_indices] = -1  # We only compute loss on masked tokens
-    #     #
-    #     # # 80% of the time, we replace masked input tokens with tokenizer.mask_token ([MASK])
-    #     # indices_replaced = torch.bernoulli(torch.full(labels.shape, 0.8)).bool() & masked_indices
-    #     # inputs_ids[indices_replaced] = self._tokenizer.convert_tokens_to_ids(self._tokenizer.mask_token)
-    #     #
-    #     # # 10% of the time, we rep4lace masked input tokens with random word
-    #     # indices_random = torch.bernoulli(torch.full(labels.shape, 0.5)).bool() & masked_indices & ~indices_replaced
-    #     # random_words = torch.randint(len(self._tokenizer), labels.shape, dtype=torch.long)
-    #     # random_words = random_words.to(inputs_ids.device)
-    #     # indices_random = indices_random.to(inputs_ids.device)
-    #     # inputs_ids[indices_random] = random_words[indices_random]
-    # elif mask_strategy == 'pos':
-    #     tf.logging.info("POS masking")
 
     (masked_lm_loss,
      masked_lm_example_loss, masked_lm_log_probs) = get_masked_lm_output(
@@ -518,43 +482,6 @@ def _decode_record(record, name_to_features, params):
   """Decodes a record to a TensorFlow example."""
   example = tf.parse_single_example(record, name_to_features)
 
-  # input_ids = example["input_ids"]
-  # input_mask = example["input_mask"]
-  # segment_ids = example["segment_ids"]
-  # masked_lm_positions = example["masked_lm_positions"]
-  # masked_lm_ids = example["masked_lm_ids"]
-  # masked_lm_weights = example["masked_lm_weights"]
-  # next_sentence_labels = example["next_sentence_labels"]
-  # tag_ids = example["tag_ids"]
-  #
-  # mask_strategy = params['mask_strategy']
-  # masked_lm_prob = params['masked_lm_prob']
-  # pad_id = params['pad_id']
-  # cls_id = params['cls_id']
-  # sep_id = params['sep_id']
-  #
-  # if mask_strategy == 'random':
-  #     labels = tf.identity(input_ids)
-  #     # We sample a few tokens in each sequence for masked-LM training (with probability args.mlm_probability defaults to 0.15 in Bert/RoBERTa)
-  #     probability_matrix = tf.fill(labels.shape, masked_lm_prob)
-  #     # tf.logging.info(probability_matrix)
-  #     mask_probability_matrix = mask_special_token(probability_matrix, labels, pad_id, cls_id, sep_id)
-  #     masked_indices = tf.distributions.Bernoulli(probability_matrix, dtype=tf.bool)
-  #     labels[~masked_indices] = -1  # We only compute loss on masked tokens
-  #     #
-  #     # # 80% of the time, we replace masked input tokens with tokenizer.mask_token ([MASK])
-  #     # indices_replaced = torch.bernoulli(torch.full(labels.shape, 0.8)).bool() & masked_indices
-  #     # inputs_ids[indices_replaced] = self._tokenizer.convert_tokens_to_ids(self._tokenizer.mask_token)
-  #     #
-  #     # # 10% of the time, we rep4lace masked input tokens with random word
-  #     # indices_random = torch.bernoulli(torch.full(labels.shape, 0.5)).bool() & masked_indices & ~indices_replaced
-  #     # random_words = torch.randint(len(self._tokenizer), labels.shape, dtype=torch.long)
-  #     # random_words = random_words.to(inputs_ids.device)
-  #     # indices_random = indices_random.to(inputs_ids.device)
-  #     # inputs_ids[indices_random] = random_words[indices_random]
-  # elif mask_strategy == 'pos':
-  #     tf.logging.info("POS masking")
-
   # tf.Example only supports tf.int64, but the TPU only supports tf.int32.
   # So cast all int64 to int32.
   for name in list(example.keys()):
@@ -573,6 +500,7 @@ def main(_):
     raise ValueError("At least one of `do_train` or `do_eval` must be True.")
 
   bert_config = modeling.BertConfig.from_json_file(FLAGS.bert_config_file)
+  vocab_size = bert_config.vocab_size
 
   tf.gfile.MakeDirs(FLAGS.output_dir)
 
@@ -617,11 +545,12 @@ def main(_):
       use_tpu=FLAGS.use_tpu,
       use_one_hot_embeddings=FLAGS.use_tpu,
       mask_strategy=FLAGS.mask_strategy,
-      masked_lm_prob=FLAGS.masked_lm_prob,
+      vocab_size=vocab_size,
       pad_id = pad_id,
       sep_id = sep_id,
       cls_id = cls_id,
-      max_predictions_per_seq=FLAGS.max_predictions_per_seq
+      max_predictions_per_seq=FLAGS.max_predictions_per_seq,
+      mask_id = mask_id
   )
 
   # If TPU is not available, this will fall back to normal Estimator on CPU
