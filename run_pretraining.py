@@ -26,6 +26,7 @@ import numpy as np
 from spacy.symbols import IDS
 
 
+
 import tokenization
 
 flags = tf.flags
@@ -125,25 +126,6 @@ flags.DEFINE_integer(
     "num_tpu_cores", 8,
     "Only used if `use_tpu` is True. Total number of TPU cores to use.")
 
-def mask_special_token(probability_matrix, labels, pad_id, cls_id, sep_id):
-    shape = labels.get_shape().as_list()
-    tf.logging.info("Shape {}".format(shape))
-    # cls_mask = tf.constant(shape, cls_id)
-    # sep_mask = tf.constant(shape, sep_id)
-    # pad_mask = tf.constant(shape, pad_id)
-    cls_indexes = tf.not_equal(labels, cls_id)  # [[2] [3] [5] [6]], shape=(4, 1)
-    sep_indexes = tf.not_equal(labels, sep_id)
-    pad_indexes = tf.not_equal(labels, pad_id)
-    mask = tf.cast(tf.logical_and(tf.logical_and(cls_indexes, sep_indexes), pad_indexes), tf.float32)
-    # a = sess.run(probability_matrix)
-
-    probability_matrix = probability_matrix * mask
-
-
-    # b = sess.run(probability_matrix)
-        # [[[1 2 3], [2 2 3], [0 0 0], [0 0 0]]
-        #  [[2 2 2], [2 2 2], [2 2 2], [0 0 0]]]))
-    return probability_matrix
 
 def model_fn_builder(bert_config, init_checkpoint, learning_rate,
                      num_train_steps, num_warmup_steps, use_tpu,
@@ -196,8 +178,6 @@ def model_fn_builder(bert_config, init_checkpoint, learning_rate,
         masked_lm_weights = []
         for input_id, p in zip(input_ids, probs):
             mask_ids = np.random.choice(seq_len, max_predictions_per_seq, replace=False, p=p)
-            print(p)
-            print(mask_ids)
             label_ids = input_id[mask_ids]
             masked_lm_weight = [1.0] * len(mask_ids)
             input_id[mask_ids] = mask_id
@@ -220,12 +200,68 @@ def model_fn_builder(bert_config, init_checkpoint, learning_rate,
 
         return (input_ids, input_mask, masked_lm_ids, masked_lm_positions, masked_lm_weights, tag_ids)
 
-    input_ids, input_mask, masked_lm_ids, masked_lm_positions, masked_lm_weights, tag_ids = tf.py_func(apply_masking,
-                [raw_input_ids, raw_input_mask, raw_masked_lm_ids, raw_masked_lm_positions, raw_tag_ids], (tf.int32,tf.int32,tf.int32,tf.int32,tf.float32,tf.int32))
-    input_ids.set_shape(raw_input_ids.get_shape())
-    input_mask.set_shape(raw_input_mask.get_shape())
-    masked_lm_ids.set_shape(raw_masked_lm_ids.get_shape())
-    masked_lm_positions.set_shape(raw_masked_lm_positions.get_shape())
+
+    def apply_entropy_masking(input_ids, input_mask, masked_lm_ids, masked_lm_positions, entropies):
+
+        shape = input_ids.shape
+
+        seq_len = shape[1]
+        masked_lm_ids = []
+        masked_lm_positions = []
+        masked_lm_weights = []
+        for input_id, entropy in zip(input_ids, entropies):
+            mask_ids = np.argpartition(entropy,-max_predictions_per_seq)[-max_predictions_per_seq:]
+            label_ids = input_id[mask_ids]
+            masked_lm_weight = [1.0] * len(mask_ids)
+            input_id[mask_ids] = mask_id
+
+            # 10% is KEEP and 10% is replaced with random words
+            num_keep = int(0.1 * max_predictions_per_seq)
+            special_indices = np.random.choice(max_predictions_per_seq, num_keep * 2, replace=False)
+            keep_indices = special_indices[:num_keep]
+            random_indices = special_indices[num_keep:]
+            input_id[mask_ids[keep_indices]] = label_ids[keep_indices]
+            random_ids = np.random.choice(vocab_size - 5, num_keep) + 5
+            input_id[mask_ids[random_indices]] = random_ids
+            masked_lm_ids.append(label_ids)
+            masked_lm_positions.append(mask_ids)
+            masked_lm_weights.append(masked_lm_weight)
+
+        masked_lm_ids = np.asarray(masked_lm_ids)
+        masked_lm_positions = np.asarray(masked_lm_positions, dtype='int32')
+        masked_lm_weights = np.asarray(masked_lm_weights, dtype='float32')
+
+
+        return (input_ids, input_mask, masked_lm_ids, masked_lm_positions, masked_lm_weights)
+
+    if mask_strategy == 'entropy':
+        ent_model = modeling.BertModel(
+            config=bert_config,
+            is_training=is_training,
+            input_ids=raw_input_ids,
+            input_mask=raw_input_mask,
+            token_type_ids=segment_ids,
+            use_one_hot_embeddings=use_one_hot_embeddings)
+        masked_lm_log_probs = get_entropy_output(
+        bert_config, ent_model.get_sequence_output(), ent_model.get_embedding_table())
+        input_ids, input_mask, masked_lm_ids, masked_lm_positions, masked_lm_weights = tf.py_func(
+            apply_entropy_masking,
+            [raw_input_ids, raw_input_mask, raw_masked_lm_ids, raw_masked_lm_positions, masked_lm_log_probs],
+            (tf.int32, tf.int32, tf.int32, tf.int32, tf.float32))
+        input_ids.set_shape(raw_input_ids.get_shape())
+        input_mask.set_shape(raw_input_mask.get_shape())
+        masked_lm_ids.set_shape(raw_masked_lm_ids.get_shape())
+        masked_lm_positions.set_shape(raw_masked_lm_positions.get_shape())
+        masked_lm_weights.set_shape(raw_masked_lm_positions.get_shape())
+    else:
+        input_ids, input_mask, masked_lm_ids, masked_lm_positions, masked_lm_weights, tag_ids = tf.py_func(apply_masking,
+                    [raw_input_ids, raw_input_mask, raw_masked_lm_ids, raw_masked_lm_positions, raw_tag_ids], (tf.int32,tf.int32,tf.int32,tf.int32, tf.float32,tf.int32))
+        input_ids.set_shape(raw_input_ids.get_shape())
+        input_mask.set_shape(raw_input_mask.get_shape())
+        masked_lm_ids.set_shape(raw_masked_lm_ids.get_shape())
+        masked_lm_positions.set_shape(raw_masked_lm_positions.get_shape())
+        masked_lm_weights.set_shape(raw_masked_lm_positions.get_shape())
+
     model = modeling.BertModel(
         config=bert_config,
         is_training=is_training,
@@ -334,8 +370,7 @@ def model_fn_builder(bert_config, init_checkpoint, learning_rate,
 
   return model_fn
 
-
-def get_masked_lm_output(bert_config, input_tensor, output_weights, positions,
+def get_masked_lm_logits(bert_config, input_tensor, output_weights, positions,
                          label_ids, label_weights):
   """Get loss and log probs for the masked LM."""
   input_tensor = gather_indexes(input_tensor, positions)
@@ -344,6 +379,78 @@ def get_masked_lm_output(bert_config, input_tensor, output_weights, positions,
     # We apply one more non-linear transformation before the output layer.
     # This matrix is not used after pre-training.
     with tf.variable_scope("transform"):
+      input_tensor = tf.layers.dense(
+          input_tensor,
+          units=bert_config.hidden_size,
+          activation=modeling.get_activation(bert_config.hidden_act),
+          kernel_initializer=modeling.create_initializer(
+              bert_config.initializer_range))
+      input_tensor = modeling.layer_norm(input_tensor)
+
+    # The output weights are the same as the input embeddings, but there is
+    # an output-only bias for each token.
+    output_bias = tf.get_variable(
+        "output_bias",
+        shape=[bert_config.vocab_size],
+        initializer=tf.zeros_initializer())
+    logits = tf.matmul(input_tensor, output_weights, transpose_b=True)
+    logits = tf.nn.bias_add(logits, output_bias)
+    log_probs = tf.nn.log_softmax(logits, axis=-1)
+
+    label_ids = tf.reshape(label_ids, [-1])
+    label_weights = tf.reshape(label_weights, [-1])
+
+    one_hot_labels = tf.one_hot(
+        label_ids, depth=bert_config.vocab_size, dtype=tf.float32)
+
+    # The `positions` tensor might be zero-padded (if the sequence is too
+    # short to have the maximum number of predictions). The `label_weights`
+    # tensor has a value of 1.0 for every real prediction and 0.0 for the
+    # padding predictions.
+    per_example_loss = -tf.reduce_sum(log_probs * one_hot_labels, axis=[-1])
+    numerator = tf.reduce_sum(label_weights * per_example_loss)
+    denominator = tf.reduce_sum(label_weights) + 1e-5
+    loss = numerator / denominator
+
+  return (loss, per_example_loss, log_probs)
+
+def get_entropy_output(bert_config, input_tensor, output_weights):
+
+    with tf.variable_scope("cls/predictions",reuse=tf.AUTO_REUSE):
+        # We apply one more non-linear transformation before the output layer.
+        # This matrix is not used after pre-training.
+        with tf.variable_scope("transform",reuse=tf.AUTO_REUSE):
+            input_tensor = tf.layers.dense(
+                input_tensor,
+                units=bert_config.hidden_size,
+                activation=modeling.get_activation(bert_config.hidden_act),
+                kernel_initializer=modeling.create_initializer(
+                    bert_config.initializer_range))
+            input_tensor = modeling.layer_norm(input_tensor)
+
+        # The output weights are the same as the input embeddings, but there is
+        # an output-only bias for each token.
+        output_bias = tf.get_variable(
+            "output_bias",
+            shape=[bert_config.vocab_size],
+            initializer=tf.zeros_initializer())
+        logits = tf.matmul(input_tensor, output_weights, transpose_b=True)
+        logits = tf.nn.bias_add(logits, output_bias)
+        probs = tf.nn.softmax(logits, axis=-1)
+        entropy = -tf.reduce_sum(probs * tf.log(probs), [2])
+
+    return entropy
+
+
+def get_masked_lm_output(bert_config, input_tensor, output_weights, positions,
+                         label_ids, label_weights):
+  """Get loss and log probs for the masked LM."""
+  input_tensor = gather_indexes(input_tensor, positions)
+
+  with tf.variable_scope("cls/predictions", reuse=tf.AUTO_REUSE):
+    # We apply one more non-linear transformation before the output layer.
+    # This matrix is not used after pre-training.
+    with tf.variable_scope("transform", reuse=tf.AUTO_REUSE):
       input_tensor = tf.layers.dense(
           input_tensor,
           units=bert_config.hidden_size,
