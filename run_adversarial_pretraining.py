@@ -25,9 +25,9 @@ import tensorflow as tf
 import numpy as np
 import itertools
 
+import teacher
 import tokenization
 
-from tensorflow.python import debug as tf_debug
 flags = tf.flags
 
 FLAGS = flags.FLAGS
@@ -36,6 +36,11 @@ FLAGS = flags.FLAGS
 flags.DEFINE_string(
     "bert_config_file", None,
     "The config json file corresponding to the pre-trained BERT model. "
+    "This specifies the model architecture.")
+
+flags.DEFINE_string(
+    "teacher_config_file", None,
+    "The config json file corresponding to the teacher model. "
     "This specifies the model architecture.")
 
 flags.DEFINE_string(
@@ -145,9 +150,9 @@ def mask_special_token(probability_matrix, labels, pad_id, cls_id, sep_id):
         #  [[2 2 2], [2 2 2], [2 2 2], [0 0 0]]]))
     return probability_matrix
 
-def model_fn_builder(bert_config, init_checkpoint, learning_rate,
+def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate,
                      num_train_steps, num_warmup_steps, use_tpu,
-                     use_one_hot_embeddings, mask_strategy, vocab_size, pad_id, cls_id, sep_id, mask_id, max_predictions_per_seq):
+                     use_one_hot_embeddings, vocab_size, pad_id, cls_id, sep_id, mask_id, max_predictions_per_seq):
   """Returns `model_fn` closure for TPUEstimator."""
 
   def model_fn(features, labels, mode, params):  # pylint: disable=unused-argument
@@ -169,43 +174,33 @@ def model_fn_builder(bert_config, init_checkpoint, learning_rate,
     is_training = (mode == tf.estimator.ModeKeys.TRAIN)
 
     def apply_masking(input_ids, input_mask, masked_lm_ids, masked_lm_positions, tag_ids):
-        if mask_strategy == 'random':
-            shape = input_ids.shape
-            probs = np.full(shape, 1)
-            probs = np.where(np.logical_not(np.logical_or(np.logical_or(np.equal(input_ids, sep_id), np.equal(input_ids, cls_id)), np.equal(input_ids, pad_id))), probs, 0)
-            probs = probs/ probs.sum(axis=1,keepdims=1)
-            seq_len = np.shape(probs)[1]
+        print(input_ids.shape)
+        print(input_ids)
 
-            masked_lm_ids = []
-            masked_lm_positions = []
-            masked_lm_weights = []
-            for input_id, p in zip(input_ids, probs):
-                mask_ids = np.random.choice(seq_len, max_predictions_per_seq, replace=False, p=p)
-                label_ids = input_id[mask_ids]
-                masked_lm_weight = [1.0] * len(mask_ids)
-                input_id[mask_ids] = mask_id
-
-                # 10% is KEEP and 10% is replaced with random words
-                num_keep = int(0.1 * max_predictions_per_seq)
-                special_indices = np.random.choice(max_predictions_per_seq, num_keep * 2, replace=False)
-                keep_indices = special_indices[:num_keep]
-                random_indices = special_indices[num_keep:]
-                input_id[mask_ids[keep_indices]] = label_ids[keep_indices]
-                random_ids = np.random.choice(vocab_size - 5, num_keep) + 5
-                input_id[mask_ids[random_indices]] = random_ids
-                masked_lm_ids.append(label_ids)
-                masked_lm_positions.append(mask_ids)
-                masked_lm_weights.append(masked_lm_weight)
-
-            masked_lm_ids = np.asarray(masked_lm_ids)
-            masked_lm_positions = np.asarray(masked_lm_positions, dtype='int32')
-            masked_lm_weights = np.asarray(masked_lm_weights, dtype='float32')
-        elif mask_strategy == 'pos':
-            tf.logging.info("POS masking")
         return (input_ids, input_mask, masked_lm_ids, masked_lm_positions, masked_lm_weights, tag_ids)
 
+    ent_model = modeling.BertModel(
+        config=bert_config,
+        is_training=is_training,
+        input_ids=raw_input_ids,
+        input_mask=raw_input_mask,
+        token_type_ids=segment_ids,
+        use_one_hot_embeddings=use_one_hot_embeddings)
+
+    input_states = ent_model.get_sequence_output()
+
+    teacher_model = teacher.TeacherModel(
+        config=teacher_config,
+        is_training=is_training,
+        input_states=input_states,
+        input_mask=raw_input_mask
+    )
+
+    mask_set = get_masked_index_set(teacher_config, teacher_model.get_action_probs())
+
+
     input_ids, input_mask, masked_lm_ids, masked_lm_positions, masked_lm_weights, tag_ids = tf.py_func(apply_masking,
-                [raw_input_ids, raw_input_mask, raw_masked_lm_ids, raw_masked_lm_positions, raw_tag_ids], (tf.int32,tf.int32,tf.int32,tf.int32,tf.float32,tf.int32))
+                [mask_set, raw_input_mask, raw_masked_lm_ids, raw_masked_lm_positions, raw_tag_ids], (tf.int32,tf.int32,tf.int32,tf.int32,tf.float32,tf.int32))
     input_ids.set_shape(raw_input_ids.get_shape())
     input_mask.set_shape(raw_input_mask.get_shape())
     masked_lm_ids.set_shape(raw_masked_lm_ids.get_shape())
@@ -317,6 +312,25 @@ def model_fn_builder(bert_config, init_checkpoint, learning_rate,
     return output_spec
 
   return model_fn
+
+def logsum(loga, logb):
+    if loga > logb:
+        return loga + tf.log(1 + tf.exp(logb - loga))
+    else:
+        return logb + tf.log(1 + tf.exp(loga - logb))
+
+def get_masked_index_set(teacher_config, output_weights, max_predictions_per_seq):
+
+    shape = teacher.get_shape_list(output_weights, expected_rank=2)
+    batch_size = shape[0]
+    seq_len = shape[1]
+    with tf.variable_scope("teacher/dp"):
+        logz = tf.zeros([batch_size, seq_len ,seq_len], dtype = tf.dtypes.float32)
+        for k in tf.range(1, max_predictions_per_seq):
+            for j in tf.range(seq_len - max_predictions_per_seq):
+
+
+    return
 
 
 def get_masked_lm_output(bert_config, input_tensor, output_weights, positions,
@@ -500,6 +514,7 @@ def main(_):
     raise ValueError("At least one of `do_train` or `do_eval` must be True.")
 
   bert_config = modeling.BertConfig.from_json_file(FLAGS.bert_config_file)
+  teacher_config = teacher.TeacherConfig.from_json_file(FLAGS.teacher_config_file)
   vocab_size = bert_config.vocab_size
 
   tf.gfile.MakeDirs(FLAGS.output_dir)
@@ -538,13 +553,13 @@ def main(_):
 
   model_fn = model_fn_builder(
       bert_config=bert_config,
+      teacher_config=teacher_config,
       init_checkpoint=FLAGS.init_checkpoint,
       learning_rate=FLAGS.learning_rate,
       num_train_steps=FLAGS.num_train_steps,
       num_warmup_steps=FLAGS.num_warmup_steps,
       use_tpu=FLAGS.use_tpu,
       use_one_hot_embeddings=FLAGS.use_tpu,
-      mask_strategy=FLAGS.mask_strategy,
       vocab_size=vocab_size,
       pad_id = pad_id,
       sep_id = sep_id,
