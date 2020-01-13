@@ -324,8 +324,15 @@ def get_masked_index_set(teacher_config, output_weights, max_predictions_per_seq
     shape = teacher.get_shape_list(output_weights, expected_rank=2)
     batch_size = shape[0]
     seq_len = shape[1]
+
+    def dp_update(j,k):
+        return
     with tf.variable_scope("teacher/dp"):
+        # Calculate DP table: aims to calculate logZ[1,K]
+        # index from 1 - we need to shift the input index by 1
+        # logZ[j-1,k] = log_sum(logZ[j,k], logp(j-1) + logZ[j,k-1])
         logz = tf.zeros([batch_size, seq_len ,seq_len], dtype = tf.dtypes.float32)
+        logp = tf.log(output_weights)
         for k in tf.range(1, max_predictions_per_seq):
             for j in tf.range(seq_len - max_predictions_per_seq):
 
