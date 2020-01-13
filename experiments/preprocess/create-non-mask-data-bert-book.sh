@@ -1,7 +1,7 @@
 #!/bin/bash
 
 
-ROOT_DIR=`cd ../../../.. &&pwd`
+ROOT_DIR=`cd ../../.. &&pwd`
 DATE=`date '+%Y%m%d-%H%M%S'`
 SRC_PATH=$ROOT_DIR'/bert'
 DATA_ROOT="/mnt/lustre/projects/da33/trang/masked-lm"
