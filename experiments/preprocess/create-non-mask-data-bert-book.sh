@@ -24,7 +24,7 @@ INPUT_FILE="${DATA_DIR}/sharded_bookcorpus/${INPUT}_${index}"
 OUT_DIR="${DATA_ROOT}/train/bookcorpus-${seq_len}"
 OUTPUT_FILE="train-${index}.tfrecord"
 DEV_FILE="dev-${index}.tfrecord"
-mkdir -p "${DATA_ROOT}/train/wikidump-en-${seq_len}"
+mkdir -p "${DATA_ROOT}/train/bookcorpus-${seq_len}"
 
 cd $SRC_PATH && python3 create_pretraining_data.py \
 --input_file=$INPUT_FILE \
