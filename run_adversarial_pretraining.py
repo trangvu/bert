@@ -174,6 +174,7 @@ def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate
     is_training = (mode == tf.estimator.ModeKeys.TRAIN)
 
     def apply_masking(input_ids, input_mask, masked_lm_ids, masked_lm_positions, tag_ids):
+        print(input_mask)
         print(input_ids.shape)
         print(input_ids)
 
@@ -196,11 +197,11 @@ def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate
         input_mask=raw_input_mask
     )
 
-    mask_set = get_masked_index_set(teacher_config, teacher_model.get_action_probs())
+    mask_set, log_prob = get_masked_index_set(teacher_config, teacher_model.get_action_probs(),max_predictions_per_seq)
 
 
     input_ids, input_mask, masked_lm_ids, masked_lm_positions, masked_lm_weights, tag_ids = tf.py_func(apply_masking,
-                [mask_set, raw_input_mask, raw_masked_lm_ids, raw_masked_lm_positions, raw_tag_ids], (tf.int32,tf.int32,tf.int32,tf.int32,tf.float32,tf.int32))
+                [mask_set, log_prob, raw_masked_lm_ids, raw_masked_lm_positions, raw_tag_ids], (tf.int32,tf.int32,tf.int32,tf.int32,tf.float32,tf.int32))
     input_ids.set_shape(raw_input_ids.get_shape())
     input_mask.set_shape(raw_input_mask.get_shape())
     masked_lm_ids.set_shape(raw_masked_lm_ids.get_shape())
@@ -313,11 +314,6 @@ def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate
 
   return model_fn
 
-def logsum(loga, logb):
-    if loga > logb:
-        return loga + tf.log(1 + tf.exp(logb - loga))
-    else:
-        return logb + tf.log(1 + tf.exp(loga - logb))
 
 def get_masked_index_set(teacher_config, output_weights, max_predictions_per_seq):
 
@@ -325,19 +321,54 @@ def get_masked_index_set(teacher_config, output_weights, max_predictions_per_seq
     batch_size = shape[0]
     seq_len = shape[1]
 
-    def dp_update(j,k):
-        return
+    def accum_cond(j, threshold, logZ_j, logb, loga):
+        return tf.greater(j, -1)
+
+    def accum_body(j, logZ_j, logb, loga):
+        logb_j = tf.squeeze(logb[:, j])
+        next_logZ_j = tf.math.reduce_logsumexp(tf.stack([loga, logb_j]),0)
+        logZ_j = logZ_j.write(j,next_logZ_j)
+        return [tf.subtract(j,1), logZ_j, logb, next_logZ_j]
+
+    def dp_loop_cond(k, logZ, lastZ, init_value):
+        return tf.less(k,  max_predictions_per_seq + 1)
+
+    def dp_body(k, logZ, lastZ, init_value):
+        # logZ[j-1,k] = log_sum(logZ[j,k], logp(j-1) + logZ[j,k-1])
+        # shift lastZ one step
+        shifted_lastZ = tf.roll(lastZ, shift=1, axis=1)
+        log_yes = logp + shifted_lastZ  # b x N
+        logZ_j = tf.TensorArray(tf.float32, size=seq_len)
+        logZ_j = logZ_j.write(seq_len - 1, init_value)
+        _, logZ_j, logb, loga = tf.while_loop(accum_cond, accum_body, [tf.constant(seq_len - k - 1), logZ_j, log_yes, init_value])
+        # logZ_j = logZ_j.write(0, tf.zeros([batch_size], dtype = tf.dtypes.float32))
+        logZ_j = logZ_j.stack() # N x b
+        logZ_j = tf.transpose(logZ_j, [1,0]) # b x N
+        lastZ = logZ_j
+        init_value = tf.zeros([batch_size], dtype = tf.dtypes.float32)
+        logZ = logZ.write(k, logZ_j)
+        return [tf.add(k,1), logZ, lastZ, init_value]
+
+
     with tf.variable_scope("teacher/dp"):
         # Calculate DP table: aims to calculate logZ[1,K]
         # index from 1 - we need to shift the input index by 1
-        # logZ[j-1,k] = log_sum(logZ[j,k], logp(j-1) + logZ[j,k-1])
-        logz = tf.zeros([batch_size, seq_len ,seq_len], dtype = tf.dtypes.float32)
+        # logZ size batch_size x N+1 x K+1
+        initZ = tf.TensorArray(tf.float32, size=max_predictions_per_seq+1)
+        logZ_0 = tf.zeros([batch_size, seq_len], dtype = tf.dtypes.float32)
+        initZ = initZ.write(tf.constant(0), logZ_0)
         logp = tf.log(output_weights)
-        for k in tf.range(1, max_predictions_per_seq):
-            for j in tf.range(seq_len - max_predictions_per_seq):
-
-
-    return
+        init_value=tf.squeeze(logp[:,-1])
+        #init: logz_0 (k=0) = 0
+        #      logz_1 (k=1) = log_p
+        k = tf.constant(1)
+        _, logZ, lastZ, last_value = tf.while_loop(dp_loop_cond, dp_body,
+                        [k, initZ, logZ_0, init_value],
+                        shape_invariants=[k.get_shape(), tf.TensorShape([]),
+                                          tf.TensorShape([batch_size,None]), init_value.get_shape()])
+        logZ = logZ.stack() # N x b x N
+        logZ = tf.transpose(logZ, [1,2,0])
+    return logZ, logp
 
 
 def get_masked_lm_output(bert_config, input_tensor, output_weights, positions,
