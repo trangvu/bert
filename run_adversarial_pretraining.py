@@ -198,11 +198,43 @@ def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate
         input_mask=raw_input_mask
     )
 
-    mask_set, log_prob = calculate_partition_table(teacher_config, teacher_model.get_action_probs(), max_predictions_per_seq)
+    def gather_z_indexes(sequence_tensor, positions):
+        """Gathers the vectors at the specific positions over a minibatch."""
+        sequence_shape = modeling.get_shape_list(sequence_tensor, expected_rank=2)
+        batch_size = sequence_shape[0]
+        seq_length = sequence_shape[1]
+
+        flat_offsets = tf.range(0, batch_size, dtype=tf.int32) * seq_length
+        flat_positions = positions + flat_offsets
+        flat_sequence_tensor = tf.reshape(sequence_tensor,
+                                          [batch_size * seq_length])
+        output_tensor = tf.gather(flat_sequence_tensor, flat_positions)
+        return output_tensor
+
+
+
+    logZ, log_prob = calculate_partition_table(teacher_config, teacher_model.get_action_probs(), max_predictions_per_seq)
+    # logZ = tf.Print(logZ, [logZ])
+    # logZ_j = logZ[:, 0, :]  # b x k x 1
+    # left = tf.constant(max_predictions_per_seq, shape=[2])
+    # log_Z_total = gather_z_indexes(logZ_j, left)
+    # logZ_j_next = logZ[:,  1, :]  # b x k x 1
+    # log_Z_yes = gather_z_indexes(logZ_j_next, left - 1)
+    # logp_j = log_prob[:,0]
+    # log_q_yes = logp_j + log_Z_yes - log_Z_total
+    # log_q_no = tf.log(1 - tf.exp(log_q_yes))
+    # # # draw 2 Gumbel noise and compute action by argmax
+    # logits = tf.stack([log_q_no, log_q_yes])
+    # actions = gumbel.gumbel_softmax(logits)
+    # mask = tf.cast(tf.argmax(actions,1),dtype=tf.float32)
+    # actions = tf.reduce_max(actions,1)
+    # # logq_j =tf.log(actions) * mask
+    # # logZ_j = tf.Print(logZ_j, [logZ_j])
+    samples, log_q = sampling_a_subset(logZ, log_prob, max_predictions_per_seq)
 
 
     input_ids, input_mask, masked_lm_ids, masked_lm_positions, masked_lm_weights, tag_ids = tf.py_func(apply_masking,
-                [mask_set, log_prob, raw_masked_lm_ids, raw_masked_lm_positions, raw_tag_ids], (tf.int32,tf.int32,tf.int32,tf.int32,tf.float32,tf.int32))
+                [samples, log_q, raw_masked_lm_ids, raw_masked_lm_positions, raw_tag_ids], (tf.int32,tf.int32,tf.int32,tf.int32,tf.float32,tf.int32))
     input_ids.set_shape(raw_input_ids.get_shape())
     input_mask.set_shape(raw_input_mask.get_shape())
     masked_lm_ids.set_shape(raw_masked_lm_ids.get_shape())
@@ -374,25 +406,39 @@ def sampling_a_subset(logZ, logp, max_predictions_per_seq):
     shape = teacher.get_shape_list(logp, expected_rank=2)
     batch_size = shape[0]
     seq_len = shape[1]
+
+    logZ = tf.Print(logZ, [logZ])
+
+    def gather_z_indexes(sequence_tensor, positions):
+        """Gathers the vectors at the specific positions over a minibatch."""
+        flat_offsets = tf.range(0, batch_size, dtype=tf.int32) * max_predictions_per_seq
+        flat_positions = positions + flat_offsets
+        flat_sequence_tensor = tf.reshape(sequence_tensor,
+                                          [batch_size * max_predictions_per_seq])
+        output_tensor = tf.gather(flat_sequence_tensor, flat_positions)
+        return output_tensor
     def sampling_loop_cond(j, subset, count, left, log_q):
-        return tf.less(j,  seq_len)
+        # j == N or left == 0
+        return tf.logical_or(tf.less(j,  seq_len), tf.equal(tf.reduce_sum(left),0))
 
     def sampling_body(j, subset, count, left, log_q):
         # calculate log_q_yes and log_q_no
-        log_Z_total = logZ[j, left]
-        log_Z_yes = logZ[j+1, left - 1]
-        log_q_yes = logp[j] + log_Z_yes - log_Z_total
+        logp_j = logp[:,j]
+        log_Z_total = gather_z_indexes(logZ[:, j, :], left) # b
+        log_Z_yes = gather_z_indexes(logZ[:, j+1, :], left - 1) # b
+        log_q_yes = logp_j + log_Z_yes - log_Z_total
         log_q_no = tf.log(1 - tf.exp(log_q_yes))
         # draw 2 Gumbel noise and compute action by argmax
         logits = tf.stack([log_q_no, log_q_yes])
         actions = gumbel.gumbel_softmax(logits)
-
-        # compute log_q_j
-        count = count + actions
-        left = left - actions
-        log_q = log_q + logits[actions]
-        subset = subset.write(j, log_q)
-        #update count and subset
+        action_mask = tf.cast(tf.argmax(actions, 1), dtype=tf.int32)
+        actions = tf.reduce_max(actions, 1)
+        log_actions = tf.log(actions) * tf.cast(action_mask, dtype=tf.float32)
+        # compute log_q_j and update count and subset
+        count = count + action_mask
+        left = left - action_mask
+        log_q = log_q + log_actions
+        subset = subset.write(j, action_mask)
 
         return [tf.add(j,1), subset, count, left, log_q]
 
@@ -404,7 +450,12 @@ def sampling_a_subset(logZ, logp, max_predictions_per_seq):
         log_q = tf.zeros([batch_size], dtype=tf.dtypes.float32)
 
         _, subset, count, left, log_q = tf.while_loop(sampling_loop_cond, sampling_body, [tf.constant(0), subset, count, left, log_q])
-    return
+
+        subset = subset.stack()  # K x b x N
+        subset = tf.transpose(subset, [1, 2, 0])
+        partition = logZ[:,0, max_predictions_per_seq]
+        log_q = log_q - partition
+    return subset, log_q
 
 
 def get_masked_lm_output(bert_config, input_tensor, output_weights, positions,
