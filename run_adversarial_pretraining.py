@@ -174,10 +174,37 @@ def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate
 
     is_training = (mode == tf.estimator.ModeKeys.TRAIN)
 
-    def apply_masking(input_ids, input_mask, masked_lm_ids, masked_lm_positions, tag_ids):
-        print(input_mask)
-        print(input_ids.shape)
-        print(input_ids)
+    def apply_masking(input_ids, input_mask, samples, logq, tag_ids):
+        print(samples)
+        print(samples.shape)
+        shape = input_ids.shape
+        batch_size = shape[0]
+        seq_len = shape[1]
+        masked_lm_ids = []
+        masked_lm_positions = []
+        masked_lm_weights = []
+        for input_id, sample in zip(input_ids, samples):
+            mask_ids = np.argwhere(sample == 1).flatten()
+            print(mask_ids)
+            label_ids = input_id[mask_ids]
+            masked_lm_weight = [1.0] * len(mask_ids)
+            input_id[mask_ids] = mask_id
+
+            # 10% is KEEP and 10% is replaced with random words
+            num_keep = int(0.1 * max_predictions_per_seq)
+            special_indices = np.random.choice(max_predictions_per_seq, num_keep * 2, replace=False)
+            keep_indices = special_indices[:num_keep]
+            random_indices = special_indices[num_keep:]
+            input_id[mask_ids[keep_indices]] = label_ids[keep_indices]
+            random_ids = np.random.choice(vocab_size - 5, num_keep) + 5
+            input_id[mask_ids[random_indices]] = random_ids
+            masked_lm_ids.append(label_ids)
+            masked_lm_positions.append(mask_ids)
+            masked_lm_weights.append(masked_lm_weight)
+
+        masked_lm_ids = np.asarray(masked_lm_ids)
+        masked_lm_positions = np.asarray(masked_lm_positions, dtype='int32')
+        masked_lm_weights = np.asarray(masked_lm_weights, dtype='float32')
 
         return (input_ids, input_mask, masked_lm_ids, masked_lm_positions, masked_lm_weights, tag_ids)
 
@@ -198,43 +225,12 @@ def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate
         input_mask=raw_input_mask
     )
 
-    def gather_z_indexes(sequence_tensor, positions):
-        """Gathers the vectors at the specific positions over a minibatch."""
-        sequence_shape = modeling.get_shape_list(sequence_tensor, expected_rank=2)
-        batch_size = sequence_shape[0]
-        seq_length = sequence_shape[1]
-
-        flat_offsets = tf.range(0, batch_size, dtype=tf.int32) * seq_length
-        flat_positions = positions + flat_offsets
-        flat_sequence_tensor = tf.reshape(sequence_tensor,
-                                          [batch_size * seq_length])
-        output_tensor = tf.gather(flat_sequence_tensor, flat_positions)
-        return output_tensor
-
-
-
     logZ, log_prob = calculate_partition_table(teacher_config, teacher_model.get_action_probs(), max_predictions_per_seq)
-    # logZ = tf.Print(logZ, [logZ])
-    # logZ_j = logZ[:, 0, :]  # b x k x 1
-    # left = tf.constant(max_predictions_per_seq, shape=[2])
-    # log_Z_total = gather_z_indexes(logZ_j, left)
-    # logZ_j_next = logZ[:,  1, :]  # b x k x 1
-    # log_Z_yes = gather_z_indexes(logZ_j_next, left - 1)
-    # logp_j = log_prob[:,0]
-    # log_q_yes = logp_j + log_Z_yes - log_Z_total
-    # log_q_no = tf.log(1 - tf.exp(log_q_yes))
-    # # # draw 2 Gumbel noise and compute action by argmax
-    # logits = tf.stack([log_q_no, log_q_yes])
-    # actions = gumbel.gumbel_softmax(logits)
-    # mask = tf.cast(tf.argmax(actions,1),dtype=tf.float32)
-    # actions = tf.reduce_max(actions,1)
-    # # logq_j =tf.log(actions) * mask
-    # # logZ_j = tf.Print(logZ_j, [logZ_j])
     samples, log_q = sampling_a_subset(logZ, log_prob, max_predictions_per_seq)
 
 
     input_ids, input_mask, masked_lm_ids, masked_lm_positions, masked_lm_weights, tag_ids = tf.py_func(apply_masking,
-                [samples, log_q, raw_masked_lm_ids, raw_masked_lm_positions, raw_tag_ids], (tf.int32,tf.int32,tf.int32,tf.int32,tf.float32,tf.int32))
+                [raw_input_ids, raw_input_mask, samples, log_q, raw_tag_ids], (tf.int32,tf.int32,tf.int32,tf.int32, tf.float32,tf.int32))
     input_ids.set_shape(raw_input_ids.get_shape())
     input_mask.set_shape(raw_input_mask.get_shape())
     masked_lm_ids.set_shape(raw_masked_lm_ids.get_shape())
@@ -440,8 +436,8 @@ def sampling_a_subset(logZ, logp, max_predictions_per_seq):
         actions = tf.reduce_max(actions, 1)
         log_actions = tf.log(actions) * tf.cast(mask, dtype=tf.float32)
         # compute log_q_j and update count and subset
-        count = count + action_mask
-        left = left - action_mask
+        count = count + mask
+        left = left - mask
         log_q = log_q + log_actions
         subset = subset.write(j, mask)
 
