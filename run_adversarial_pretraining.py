@@ -368,18 +368,16 @@ def calculate_partition_table(teacher_config, output_weights, max_predictions_pe
     def dp_body(k, logZ, lastZ, init_value):
         # logZ[j-1,k] = log_sum(logZ[j,k], logp(j-1) + logZ[j,k-1])
         # shift lastZ one step
-        shifted_lastZ = tf.roll(lastZ, shift=1, axis=1)
+        shifted_lastZ = tf.roll(lastZ[:,:-1], shift=1, axis=1)
         log_yes = logp + shifted_lastZ  # b x N
-        logZ_j = tf.TensorArray(tf.float32, size=seq_len)
-        # logZ_j = logZ_j.write(seq_len - 1, init_value)
+        logZ_j = tf.TensorArray(tf.float32, size=seq_len + 1)
         _, logZ_j, logb, loga = tf.while_loop(accum_cond, accum_body, [seq_len - k, logZ_j, log_yes, init_value])
         # logZ_j = logZ_j.write(0, tf.zeros([batch_size], dtype = tf.dtypes.float32))
         logZ_j = logZ_j.stack() # N x b
         logZ_j = tf.transpose(logZ_j, [1,0]) # b x N
-        lastZ = logZ_j
         init_value = tf.zeros([batch_size], dtype = tf.dtypes.float32)
         logZ = logZ.write(k, logZ_j)
-        return [tf.add(k,1), logZ, lastZ, init_value]
+        return [tf.add(k,1), logZ, logZ_j, init_value]
 
 
     with tf.variable_scope("teacher/dp"):
@@ -387,7 +385,7 @@ def calculate_partition_table(teacher_config, output_weights, max_predictions_pe
         # index from 1 - we need to shift the input index by 1
         # logZ size batch_size x N+1 x K+1
         initZ = tf.TensorArray(tf.float32, size=max_predictions_per_seq+1)
-        logZ_0 = tf.zeros([batch_size, seq_len], dtype = tf.dtypes.float32)
+        logZ_0 = tf.zeros([batch_size, seq_len + 1], dtype = tf.dtypes.float32)
         initZ = initZ.write(tf.constant(0), logZ_0)
         logp = tf.log(output_weights)
         init_value=tf.squeeze(logp[:,-1])
@@ -420,7 +418,7 @@ def sampling_a_subset(logZ, logp, max_predictions_per_seq):
         return output_tensor
     def sampling_loop_cond(j, subset, count, left, log_q):
         # j == N or left == 0
-        return tf.logical_or(tf.less(j,  max_predictions_per_seq), tf.equal(tf.reduce_sum(left),0))
+        return tf.logical_or(tf.less(j,  seq_len), tf.equal(tf.reduce_sum(left),0))
 
     def sampling_body(j, subset, count, left, log_q):
         # calculate log_q_yes and log_q_no
