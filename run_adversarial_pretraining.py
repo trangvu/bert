@@ -410,15 +410,20 @@ def sampling_a_subset(logZ, logp, max_predictions_per_seq):
 
     def gather_z_indexes(sequence_tensor, positions):
         """Gathers the vectors at the specific positions over a minibatch."""
+        # set negative indices to zeros
+        mask = tf.zeros([batch_size], dtype=tf.int32)
+        masked_position = tf.reduce_max(tf.stack([positions, mask]), 1)
+
         flat_offsets = tf.range(0, batch_size, dtype=tf.int32) * max_predictions_per_seq
-        flat_positions = positions + flat_offsets
+        flat_positions = masked_position + flat_offsets
         flat_sequence_tensor = tf.reshape(sequence_tensor,
                                           [batch_size * pred_len])
         output_tensor = tf.gather(flat_sequence_tensor, flat_positions)
         return output_tensor
+
     def sampling_loop_cond(j, subset, count, left, log_q):
-        # j == N or left == 0
-        return tf.logical_or(tf.less(j,  seq_len), tf.equal(tf.reduce_sum(left),0))
+        # j < N and left > 0
+        return tf.logical_and(tf.less(j,  seq_len), tf.reduce_any(tf.greater(left,0)))
 
     def sampling_body(j, subset, count, left, log_q):
         # calculate log_q_yes and log_q_no
@@ -431,13 +436,14 @@ def sampling_a_subset(logZ, logp, max_predictions_per_seq):
         logits = tf.stack([log_q_no, log_q_yes])
         actions = gumbel.gumbel_softmax(logits)
         action_mask = tf.cast(tf.argmax(actions, 1), dtype=tf.int32)
+        mask = tf.where(tf.greater(left,0), action_mask, tf.zeros([batch_size], dtype=tf.int32))
         actions = tf.reduce_max(actions, 1)
-        log_actions = tf.log(actions) * tf.cast(action_mask, dtype=tf.float32)
+        log_actions = tf.log(actions) * tf.cast(mask, dtype=tf.float32)
         # compute log_q_j and update count and subset
         count = count + action_mask
         left = left - action_mask
         log_q = log_q + log_actions
-        subset = subset.write(j, action_mask)
+        subset = subset.write(j, mask)
 
         return [tf.add(j,1), subset, count, left, log_q]
 
@@ -445,7 +451,7 @@ def sampling_a_subset(logZ, logp, max_predictions_per_seq):
         # Batch sampling
         subset = tf.TensorArray(tf.int32, size=seq_len)
         count = tf.zeros([batch_size], dtype = tf.dtypes.int32)
-        left = tf.constant(max_predictions_per_seq, shape=[batch_size])
+        left = tf.constant(max_predictions_per_seq, shape=[batch_size], dtype=tf.int32)
         log_q = tf.zeros([batch_size], dtype=tf.dtypes.float32)
 
         _, subset, count, left, log_q = tf.while_loop(sampling_loop_cond, sampling_body, [tf.constant(0), subset, count, left, log_q])
