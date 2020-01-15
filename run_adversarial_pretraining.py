@@ -408,18 +408,19 @@ def sampling_a_subset(logZ, logp, max_predictions_per_seq):
     seq_len = shape[1]
 
     logZ = tf.Print(logZ, [logZ])
+    pred_len = max_predictions_per_seq + 1
 
     def gather_z_indexes(sequence_tensor, positions):
         """Gathers the vectors at the specific positions over a minibatch."""
         flat_offsets = tf.range(0, batch_size, dtype=tf.int32) * max_predictions_per_seq
         flat_positions = positions + flat_offsets
         flat_sequence_tensor = tf.reshape(sequence_tensor,
-                                          [batch_size * max_predictions_per_seq])
+                                          [batch_size * pred_len])
         output_tensor = tf.gather(flat_sequence_tensor, flat_positions)
         return output_tensor
     def sampling_loop_cond(j, subset, count, left, log_q):
         # j == N or left == 0
-        return tf.logical_or(tf.less(j,  seq_len), tf.equal(tf.reduce_sum(left),0))
+        return tf.logical_or(tf.less(j,  max_predictions_per_seq), tf.equal(tf.reduce_sum(left),0))
 
     def sampling_body(j, subset, count, left, log_q):
         # calculate log_q_yes and log_q_no
@@ -452,7 +453,7 @@ def sampling_a_subset(logZ, logp, max_predictions_per_seq):
         _, subset, count, left, log_q = tf.while_loop(sampling_loop_cond, sampling_body, [tf.constant(0), subset, count, left, log_q])
 
         subset = subset.stack()  # K x b x N
-        subset = tf.transpose(subset, [1, 2, 0])
+        subset = tf.transpose(subset, [1, 0])
         partition = logZ[:,0, max_predictions_per_seq]
         log_q = log_q - partition
     return subset, log_q
