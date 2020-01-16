@@ -66,6 +66,10 @@ flags.DEFINE_bool(
 
 flags.DEFINE_float("masked_lm_prob", 0.15, "Masked LM probability.")
 
+## Teacher parameters
+flags.DEFINE_float("teacher_update_rate", 0.33, "How often we update the teacher")
+flags.DEFINE_integer("teacher_rate_update_step", 1000, "How often we update teacher learning rate")
+flags.DEFINE_float("teacher_rate_decay", 0.963, "Decay rate for teacher update rate")
 
 ## Other parameters
 flags.DEFINE_string(
@@ -187,6 +191,7 @@ def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate
         masked_lm_weights = []
         for input_id, p in zip(input_ids, probs):
             mask_ids = np.random.choice(seq_len, max_predictions_per_seq, replace=False, p=p)
+            print(mask_ids)
             label_ids = input_id[mask_ids]
             masked_lm_weight = [1.0] * len(mask_ids)
             input_id[mask_ids] = mask_id
@@ -301,6 +306,22 @@ def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate
          bert_config, model.get_pooled_output(), next_sentence_labels)
 
     total_loss = masked_lm_loss + next_sentence_loss
+    student_loss = total_loss
+    teacher_loss = None
+    if mode == tf.estimator.ModeKeys.TRAIN:
+        # Update teacher
+        # Reward is student loss
+        # Baseline is the mean of reward (but we only have 1 sample)
+        # masked_lm_example_loss
+        shape = teacher.get_shape_list(masked_lm_ids, expected_rank=2)
+        batch_size = shape[0]
+        seq_len = shape[1]
+        student_per_example_loss = tf.reshape(masked_lm_example_loss, [batch_size, seq_len])
+        reward = tf.reduce_mean(student_per_example_loss, 1)
+        reward = tf.stop_gradient(reward)
+        teacher_loss = tf.reduce_mean(- log_q * reward)
+        total_loss = student_loss + teacher_loss
+
 
     tvars = tf.trainable_variables()
 
@@ -329,10 +350,16 @@ def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate
 
     output_spec = None
     if mode == tf.estimator.ModeKeys.TRAIN:
-      train_op = optimization.create_optimizer(
-          total_loss, learning_rate, num_train_steps, num_warmup_steps, use_tpu)
+      student_train_op = optimization.create_optimizer(
+          student_loss, learning_rate, num_train_steps, num_warmup_steps, use_tpu)
+      teacher_train_op = optimization.create_optimizer(
+          teacher_loss, learning_rate, num_train_steps, num_warmup_steps, use_tpu)
+      train_op = tf.group(student_train_op, teacher_train_op)
 
-      logging_hook = tf.train.LoggingTensorHook({"loss": total_loss}, every_n_iter=10)
+      logging_hook = tf.train.LoggingTensorHook({"loss": total_loss,
+                                                'teacher_loss': teacher_loss,
+                                                 'student_loss': student_loss},
+                                every_n_iter=10)
 
       output_spec = tf.contrib.tpu.TPUEstimatorSpec(
           mode=mode,
