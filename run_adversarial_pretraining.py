@@ -191,7 +191,6 @@ def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate
         masked_lm_weights = []
         for input_id, p in zip(input_ids, probs):
             mask_ids = np.random.choice(seq_len, max_predictions_per_seq, replace=False, p=p)
-            print(mask_ids)
             label_ids = input_id[mask_ids]
             masked_lm_weight = [1.0] * len(mask_ids)
             input_id[mask_ids] = mask_id
@@ -538,6 +537,31 @@ def sampling_a_subset(logZ, logp, max_predictions_per_seq):
         log_q = log_q - partition
     return subset, log_q
 
+
+class TeacherUpdateRateHook(tf.train.SessionRunHook):
+    """Logs model stats to a csv."""
+
+    def __init__(self, scope_name, init_update_rate, update_rate_schedule, update_rate_decay):
+        """
+        Set class variables
+        :param scope_name:
+            Used to filter for tensors which name contain that specific variable scope
+        :param path:
+            path to model dir
+        :param batch_size:
+            batch size during training
+        """
+        self.scope_name = scope_name
+        self.update_rate = init_update_rate
+        self.update_rate_schedule = update_rate_schedule
+        self.update_rate_decay = update_rate_decay
+        self._step = 0
+
+    def before_run(self, run_context):
+        pass
+
+    def after_run(self, run_context, run_values):
+        pass
 
 def get_masked_lm_output(bert_config, input_tensor, output_weights, positions,
                          label_ids, label_weights):
