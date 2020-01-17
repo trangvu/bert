@@ -258,38 +258,38 @@ def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate
 
         return (input_ids, input_mask, masked_lm_ids, masked_lm_positions, masked_lm_weights, tag_ids)
 
-    # if mode == tf.estimator.ModeKeys.TRAIN:
-    ent_model = modeling.BertModel(
-        config=bert_config,
-        is_training=is_training,
-        input_ids=raw_input_ids,
-        input_mask=raw_input_mask,
-        token_type_ids=segment_ids,
-        use_one_hot_embeddings=use_one_hot_embeddings)
+    if mode == tf.estimator.ModeKeys.TRAIN:
+        ent_model = modeling.BertModel(
+            config=bert_config,
+            is_training=is_training,
+            input_ids=raw_input_ids,
+            input_mask=raw_input_mask,
+            token_type_ids=segment_ids,
+            use_one_hot_embeddings=use_one_hot_embeddings)
 
-    input_states = ent_model.get_sequence_output()
-    input_states = tf.stop_gradient(input_states)
+        input_states = ent_model.get_sequence_output()
+        input_states = tf.stop_gradient(input_states)
 
-    teacher_model = teacher.TeacherModel(
-        config=teacher_config,
-        is_training=is_training,
-        input_states=input_states,
-        input_mask=raw_input_mask
-    )
+        teacher_model = teacher.TeacherModel(
+            config=teacher_config,
+            is_training=is_training,
+            input_states=input_states,
+            input_mask=raw_input_mask
+        )
 
-    logZ, log_prob = calculate_partition_table(raw_input_mask, teacher_model.get_action_probs(),
-                                                   max_predictions_per_seq)
-    samples, log_q = sampling_a_subset(raw_input_mask, logZ, log_prob, max_predictions_per_seq)
+        logZ, log_prob = calculate_partition_table(raw_input_mask, teacher_model.get_action_probs(),
+                                                       max_predictions_per_seq)
+        samples, log_q = sampling_a_subset(raw_input_mask, logZ, log_prob, max_predictions_per_seq)
 
-    input_ids, input_mask, masked_lm_ids, masked_lm_positions, masked_lm_weights, tag_ids = tf.py_func(
+        input_ids, input_mask, masked_lm_ids, masked_lm_positions, masked_lm_weights, tag_ids = tf.py_func(
             apply_teacher_masking,
             [raw_input_ids, raw_input_mask, samples, log_q, raw_tag_ids],
             (tf.int32, tf.int32, tf.int32, tf.int32, tf.float32, tf.int32))
-    # elif mode == tf.estimator.ModeKeys.EVAL:
-    #     input_ids, input_mask, masked_lm_ids, masked_lm_positions, masked_lm_weights, tag_ids = tf.py_func(
-    #         apply_random_masking,
-    #         [raw_input_ids, raw_input_mask, raw_masked_lm_ids, raw_masked_lm_positions, raw_tag_ids],
-    #         (tf.int32, tf.int32, tf.int32, tf.int32, tf.float32, tf.int32))
+    elif mode == tf.estimator.ModeKeys.EVAL:
+        input_ids, input_mask, masked_lm_ids, masked_lm_positions, masked_lm_weights, tag_ids = tf.py_func(
+            apply_random_masking,
+            [raw_input_ids, raw_input_mask, raw_masked_lm_ids, raw_masked_lm_positions, raw_tag_ids],
+            (tf.int32, tf.int32, tf.int32, tf.int32, tf.float32, tf.int32))
 
     input_ids.set_shape(raw_input_ids.get_shape())
     input_mask.set_shape(raw_input_mask.get_shape())
@@ -451,33 +451,6 @@ def calculate_partition_table(input_mask, output_weights, max_predictions_per_se
     shape = teacher.get_shape_list(output_weights, expected_rank=2)
     seq_len = shape[1]
 
-    def accum_cond(j, logZ_j, logb, loga):
-        return tf.greater(j, -1)
-
-    def accum_body(j, logZ_j, logb, loga):
-        logb_j = tf.squeeze(logb[:, j])
-        next_logZ_j = tf.math.reduce_logsumexp(tf.stack([loga, logb_j]),0)
-        logZ_j = logZ_j.write(j,next_logZ_j)
-        return [tf.subtract(j,1), logZ_j, logb, next_logZ_j]
-
-    def dp_loop_cond(k, logZ, lastZ, init_value):
-        return tf.less(k,  max_predictions_per_seq + 1)
-
-    def dp_body(k, logZ, lastZ, init_value):
-        # logZ[j-1,k] = log_sum(logZ[j,k], logp(j-1) + logZ[j,k-1])
-        # shift lastZ one step
-        shifted_lastZ = tf.roll(lastZ[:,:-1], shift=1, axis=1)
-        log_yes = logp + shifted_lastZ  # b x N
-        logZ_j = tf.TensorArray(tf.float32, size=seq_len + 1)
-        _, logZ_j, logb, loga = tf.while_loop(accum_cond, accum_body, [seq_len - k, logZ_j, log_yes, init_value])
-        # logZ_j = logZ_j.write(0, tf.zeros([batch_size], dtype = tf.dtypes.float32))
-        logZ_j = logZ_j.stack() # N x b
-        logZ_j = tf.transpose(logZ_j, [1,0]) # b x N
-        new_init_value = tf.zeros_like(init_value, dtype = tf.float32)
-        logZ = logZ.write(k, logZ_j)
-        return [tf.add(k,1), logZ, logZ_j, new_init_value]
-
-
     with tf.variable_scope("teacher/dp"):
         # Calculate DP table: aims to calculate logZ[1,K]
         # index from 1 - we need to shift the input index by 1
@@ -487,7 +460,46 @@ def calculate_partition_table(input_mask, output_weights, max_predictions_per_se
         logZ_0 = tf.pad(logZ_0,[[0,0],[0,1]], "CONSTANT") #size b x N+1
         # logZ_0 = tf.zeros([batch_size, seq_len + 1], dtype = tf.dtypes.float32)
         initZ = initZ.write(tf.constant(0), logZ_0)
-        logp = tf.log(output_weights)
+
+        # mask logp
+        output_weights = tf.cast(input_mask,dtype=tf.float32) * output_weights
+        # normalize pi_i = pi_i / (1 - pi_i)
+        logp = tf.log(tf.clip_by_value(output_weights,1e-10,1.0)) - tf.log(tf.clip_by_value(1 - output_weights,1e-10,1.0))
+        accum_logp = tf.cumsum(logp, axis=1, reverse=True)
+
+        def accum_cond(j, logZ_j, logb, loga):
+            return tf.greater(j, -1)
+
+        def accum_body(j, logZ_j, logb, loga):
+            logb_j = tf.squeeze(logb[:, j])
+            next_logZ_j = tf.math.reduce_logsumexp(tf.stack([loga, logb_j]), 0)
+            logZ_j = logZ_j.write(j, next_logZ_j)
+            return [tf.subtract(j, 1), logZ_j, logb, next_logZ_j]
+
+        def dp_loop_cond(k, logZ, lastZ, init_value):
+            return tf.less(k, max_predictions_per_seq + 1)
+
+
+        def dp_body(k, logZ, lastZ, init_value):
+            # case j < N-k + 1:
+            #   logZ[j,k] = log_sum(logZ[j+1,k], logp(j) + logZ[j+1,k-1])
+            # case j = N-k + 1
+            #   logZ[j,k] = accum_logp[j]
+            # case j > N-k + 1
+            #   logZ[j,k] = 0
+
+            # shift lastZ one step
+            shifted_lastZ = tf.roll(lastZ[:, :-1], shift=1, axis=1)
+            log_yes = logp + shifted_lastZ  # b x N
+            logZ_j = tf.TensorArray(tf.float32, size=seq_len + 1)
+            logZ_j = logZ_j.write(seq_len - k + 1, accum_logp[:,seq_len - k ])
+            _, logZ_j, logb, loga = tf.while_loop(accum_cond, accum_body, [seq_len - k, logZ_j, log_yes, init_value])
+            logZ_j = logZ_j.stack()  # N x b
+            logZ_j = tf.transpose(logZ_j, [1, 0])  # b x N
+            new_init_value = tf.zeros_like(init_value, dtype=tf.float32)
+            logZ = logZ.write(k, logZ_j)
+            return [tf.add(k, 1), logZ, logZ_j, new_init_value]
+
         init_value=tf.squeeze(logp[:,-1])
         #init: logz_0 (k=0) = 0
         #      logz_1 (k=1) = log_p
@@ -509,7 +521,7 @@ def sampling_a_subset(input_mask, logZ, logp, max_predictions_per_seq):
         """Gathers the vectors at the specific positions over a minibatch."""
         # set negative indices to zeros
         mask = tf.zeros_like(positions, dtype=tf.int32)
-        masked_position = tf.reduce_max(tf.stack([positions, mask]), 1)
+        masked_position = tf.reduce_max(tf.stack([positions, mask]), 0)
 
         index = tf.reshape(tf.cast(tf.where(tf.equal(mask,0)),dtype=tf.int32), [-1])
         flat_offsets = index * max_predictions_per_seq
@@ -529,20 +541,23 @@ def sampling_a_subset(input_mask, logZ, logp, max_predictions_per_seq):
         log_Z_total = gather_z_indexes(logZ[:, j, :], left) # b
         log_Z_yes = gather_z_indexes(logZ[:, j+1, :], left - 1) # b
         log_q_yes = logp_j + log_Z_yes - log_Z_total
-        log_q_no = tf.log(1 - tf.exp(log_q_yes))
+        log_q_no = tf.log(tf.clip_by_value(1 - tf.exp(log_q_yes),1e-10,1.0))
         # draw 2 Gumbel noise and compute action by argmax
-        logits = tf.stack([log_q_no, log_q_yes])
+        logits = tf.transpose(tf.stack([log_q_no, log_q_yes]),[1,0])
         actions = gumbel.gumbel_softmax(logits)
-        action_mask = tf.cast(tf.argmax(actions, 1), dtype=tf.bool)
-        action_mask = tf.cast(tf.logical_and(in_mask_j, action_mask),dtype=tf.int32)
-        mask = tf.where(tf.greater(left,0), action_mask, tf.zeros_like(logp_j, dtype=tf.int32))
+        action_mask = tf.cast(tf.argmax(actions, 1), dtype=tf.int32)
+        no_left_mask = tf.where(tf.greater(left,0), tf.ones_like(left, dtype=tf.int32), tf.zeros_like(left, dtype=tf.int32))
+        output = action_mask * no_left_mask
+        # action_mask = tf.cast(tf.argmax(actions, 1), dtype=tf.bool)
+        # action_mask = tf.cast(tf.logical_and(in_mask_j, action_mask),dtype=tf.int32)
+        # mask = tf.where(tf.greater(left,0), action_mask, tf.zeros_like(logp_j, dtype=tf.int32))
         actions = tf.reduce_max(actions, 1)
-        log_actions = tf.log(actions) * tf.cast(mask, dtype=tf.float32)
+        log_actions = tf.log(actions) * tf.cast(output, dtype=tf.float32)
         # compute log_q_j and update count and subset
-        count = count + mask
-        left = left - mask
+        count = count + output
+        left = left - output
         log_q = log_q + log_actions
-        subset = subset.write(j, mask)
+        subset = subset.write(j, output)
 
         return [tf.add(j,1), subset, count, left, log_q]
 
