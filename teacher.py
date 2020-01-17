@@ -120,7 +120,7 @@ class TeacherModel(object):
                config,
                is_training,
                input_states,
-               input_mask=None,
+               input_mask,
                scope=None):
     """Constructor for TeacherModel.
 
@@ -142,11 +142,7 @@ class TeacherModel(object):
       config.attention_probs_dropout_prob = 0.0
 
     input_shape = get_shape_list(input_states, expected_rank=3)
-    batch_size = input_shape[0]
     seq_length = input_shape[1]
-
-    if input_mask is None:
-      input_mask = tf.ones(shape=[batch_size, seq_length], dtype=tf.int32)
 
 
     with tf.variable_scope(scope, default_name="teacher"):
@@ -183,7 +179,7 @@ class TeacherModel(object):
                   activation=get_activation('sigmoid'),
                   kernel_initializer=create_initializer(
                       config.initializer_range))
-              self.action_probs = tf.reshape(self.action_probs, [batch_size, seq_length])
+              self.action_probs = tf.squeeze(self.action_probs)
 
       # The "pooler" converts the encoded sequence tensor of shape
       # [batch_size, seq_length, hidden_size] to a tensor of shape
