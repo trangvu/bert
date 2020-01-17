@@ -223,6 +223,7 @@ def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate
         print(samples.shape)
         print(logq)
         print(logq.shape)
+        print(input_mask)
         masked_lm_ids = []
         masked_lm_positions = []
         masked_lm_weights = []
@@ -454,22 +455,26 @@ def calculate_partition_table(input_mask, output_weights, max_predictions_per_se
     seq_len = shape[1]
 
     with tf.variable_scope("teacher/dp"):
-        # Calculate DP table: aims to calculate logZ[1,K]
-        # index from 1 - we need to shift the input index by 1
+        '''
+        Calculate DP table: aims to calculate logZ[0,K]
+        # We add an extra row so that when we calculate log_q_yes, we don't have out of bound error
+        # Z[b,N+1,k] = log 0 - we do not allow to choose anything
         # logZ size batch_size x N+1 x K+1
+        '''
         initZ = tf.TensorArray(tf.float32, size=max_predictions_per_seq+1)
         logZ_0 = tf.zeros_like(input_mask, dtype = tf.float32) #size b x N
         logZ_0 = tf.pad(logZ_0,[[0,0],[0,1]], "CONSTANT") #size b x N+1
-        # logZ_0 = tf.zeros([batch_size, seq_len + 1], dtype = tf.dtypes.float32)
         initZ = initZ.write(tf.constant(0), logZ_0)
 
         # mask logp
-        output_weights = tf.cast(input_mask,dtype=tf.float32) * output_weights
+        output_weights = [[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7],[0.8, 0.9, 1, 0.1, 0.2, 0.3, 0.4]]
+        # output_weights = tf.cast(input_mask,dtype=tf.float32) * output_weights
         # normalize pi_i = pi_i / (1 - pi_i)
-        # logp = tf.log(tf.clip_by_value(output_weights,1e-10,1.0)) - tf.log(tf.clip_by_value(1 - output_weights,1e-10,1.0))
-        logp = tf.log(tf.clip_by_value(output_weights,1e-10,1.0))
+        # logp = tf.log(tf.clip_by_value(output_weights,1e-20,1.0)) - tf.log(tf.clip_by_value(1 - output_weights,1e-20,1.0))
+        logp = tf.log(tf.clip_by_value(output_weights,1e-20,1.0))
         logp = tf.reverse(logp, [1])
         accum_logp = tf.cumsum(logp, axis=1, reverse=True)
+        init_value = tf.ones_like(tf.squeeze(logp[:,-1]), dtype=tf.float32) * tf.log(1e-20)
 
         def accum_cond(j, logZ_j, logb, loga):
             return tf.greater(j, -1)
@@ -480,11 +485,10 @@ def calculate_partition_table(input_mask, output_weights, max_predictions_per_se
             logZ_j = logZ_j.write(j, next_logZ_j)
             return [tf.subtract(j, 1), logZ_j, logb, next_logZ_j]
 
-        def dp_loop_cond(k, logZ, lastZ, init_value):
+        def dp_loop_cond(k, logZ, lastZ):
             return tf.less(k, max_predictions_per_seq + 1)
 
-
-        def dp_body(k, logZ, lastZ, init_value):
+        def dp_body(k, logZ, lastZ):
             # case j < N-k + 1:
             #   logZ[j,k] = log_sum(logZ[j+1,k], logp(j) + logZ[j+1,k-1])
             # case j = N-k + 1
@@ -497,22 +501,17 @@ def calculate_partition_table(input_mask, output_weights, max_predictions_per_se
             log_yes = logp + shifted_lastZ  # b x N
             logZ_j = tf.TensorArray(tf.float32, size=seq_len + 1)
             #minus 1 because of the last token is [SEP]
-            logZ_j = logZ_j.write(seq_len - k, accum_logp[:,seq_len - k -1])
-            _, logZ_j, logb, loga = tf.while_loop(accum_cond, accum_body, [seq_len - k - 1, logZ_j, log_yes, init_value])
+            logZ_j = logZ_j.write(seq_len - k + 1, accum_logp[:,seq_len - k])
+            _, logZ_j, logb, loga = tf.while_loop(accum_cond, accum_body, [seq_len - k, logZ_j, log_yes, init_value])
             logZ_j = logZ_j.stack()  # N x b
             logZ_j = tf.transpose(logZ_j, [1, 0])  # b x N
-            new_init_value = tf.zeros_like(init_value, dtype=tf.float32)
             logZ = logZ.write(k, logZ_j)
-            return [tf.add(k, 1), logZ, logZ_j, new_init_value]
-
-        init_value=tf.squeeze(logp[:,-1])
-        #init: logz_0 (k=0) = 0
-        #      logz_1 (k=1) = log_p
+            return [tf.add(k, 1), logZ, logZ_j]
         k = tf.constant(1)
-        _, logZ, lastZ, last_value = tf.while_loop(dp_loop_cond, dp_body,
-                        [k, initZ, logZ_0, init_value],
+        _, logZ, lastZ= tf.while_loop(dp_loop_cond, dp_body,
+                        [k, initZ, logZ_0],
                         shape_invariants=[k.get_shape(), tf.TensorShape([]),
-                                          tf.TensorShape([None,None]), init_value.get_shape()])
+                                          tf.TensorShape([None,None])])
         logZ = logZ.stack() # N x b x N
         logZ = tf.transpose(logZ, [1,2,0])
     return logZ, logp
@@ -545,7 +544,7 @@ def sampling_a_subset(input_mask, logZ, logp, max_predictions_per_seq):
         log_Z_total = gather_z_indexes(logZ[:, j, :], left) # b
         log_Z_yes = gather_z_indexes(logZ[:, j+1, :], left - 1) # b
         log_q_yes = logp_j + log_Z_yes - log_Z_total
-        log_q_no = tf.log(tf.clip_by_value(1 - tf.exp(log_q_yes),1e-10,1.0))
+        log_q_no = tf.log(tf.clip_by_value(1 - tf.exp(log_q_yes),1e-20,1.0))
         # draw 2 Gumbel noise and compute action by argmax
         logits = tf.transpose(tf.stack([log_q_no, log_q_yes]),[1,0])
         actions = gumbel.gumbel_softmax(logits)
