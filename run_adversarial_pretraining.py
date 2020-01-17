@@ -467,11 +467,10 @@ def calculate_partition_table(input_mask, output_weights, max_predictions_per_se
         initZ = initZ.write(tf.constant(0), logZ_0)
 
         # mask logp
-        output_weights = [[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7],[0.8, 0.9, 1, 0.1, 0.2, 0.3, 0.4]]
-        # output_weights = tf.cast(input_mask,dtype=tf.float32) * output_weights
+        output_weights = tf.cast(input_mask,dtype=tf.float32) * output_weights
         # normalize pi_i = pi_i / (1 - pi_i)
-        # logp = tf.log(tf.clip_by_value(output_weights,1e-20,1.0)) - tf.log(tf.clip_by_value(1 - output_weights,1e-20,1.0))
-        logp = tf.log(tf.clip_by_value(output_weights,1e-20,1.0))
+        logp = tf.log(tf.clip_by_value(output_weights,1e-20,1.0)) - tf.log(tf.clip_by_value(1 - output_weights,1e-20,1.0))
+        # logp = tf.log(tf.clip_by_value(output_weights,1e-20,1.0))
         logp = tf.reverse(logp, [1])
         accum_logp = tf.cumsum(logp, axis=1, reverse=True)
         # init_value = tf.ones_like(tf.squeeze(logp[:,-1]), dtype=tf.float32) * tf.log(1e-20)
