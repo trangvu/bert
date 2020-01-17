@@ -69,7 +69,7 @@ flags.DEFINE_bool(
 flags.DEFINE_float("masked_lm_prob", 0.15, "Masked LM probability.")
 
 ## Teacher parameters
-flags.DEFINE_float("teacher_update_rate", 0.33, "How often we update the teacher")
+flags.DEFINE_float("teacher_update_rate", 0.9, "How often we update the teacher")
 flags.DEFINE_integer("teacher_rate_update_step", 1000, "How often we update teacher learning rate")
 flags.DEFINE_float("teacher_rate_decay", 0.963, "Decay rate for teacher update rate")
 flags.DEFINE_float("teacher_learning_rate", 5e-5, "The initial learning rate for Adam teacher.")
@@ -315,7 +315,7 @@ def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate
     teacher_loss = None
     if mode == tf.estimator.ModeKeys.TRAIN:
         # teacher update rate
-        teacher_update_rate = tf.Variable(0.5)
+        teacher_update = tf.Variable(0.5)
 
         def compute_teacher_loss():
             # Update teacher
@@ -333,7 +333,7 @@ def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate
 
         coin_toss = tf.random.uniform([])
         # coin_toss = tf.Print(coin_toss, [coin_toss])
-        teacher_loss = tf.cond(coin_toss < teacher_update_rate, lambda : compute_teacher_loss(), lambda: tf.constant(0.0))
+        teacher_loss = tf.cond(coin_toss < teacher_update, lambda : compute_teacher_loss(), lambda: tf.constant(0.0))
         # teacher_loss = tf.Print(teacher_loss, [teacher_loss])
         total_loss = student_loss + teacher_loss
 
@@ -370,7 +370,7 @@ def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate
       teacher_train_op = optimization.create_optimizer(
           teacher_loss, teacher_learning_rate, num_train_steps, num_warmup_steps, use_tpu)
 
-      train_op = tf.cond(coin_toss < teacher_update_rate,
+      train_op = tf.cond(coin_toss < teacher_update,
                          lambda: tf.group(student_train_op, teacher_train_op),
                          lambda: student_train_op)
 
@@ -378,13 +378,14 @@ def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate
                                                 'teacher_loss': teacher_loss,
                                                  'student_loss': student_loss},
                                 every_n_iter=10)
+      update_rate_hook = TeacherUpdateRateHook(teacher_update_rate, teacher_rate_update_step, teacher_rate_decay, teacher_update)
 
       output_spec = tf.contrib.tpu.TPUEstimatorSpec(
           mode=mode,
           loss=total_loss,
           train_op=train_op,
           scaffold_fn=scaffold_fn,
-          training_hooks = [logging_hook])
+          training_hooks = [logging_hook, update_rate_hook])
     elif mode == tf.estimator.ModeKeys.EVAL:
 
       def metric_fn(masked_lm_example_loss, masked_lm_log_probs, masked_lm_ids,
@@ -575,7 +576,7 @@ class TeacherUpdateRateHook(tf.train.SessionRunHook):
         self.update_rate_decay = update_rate_decay
         self.beta_placeholder = tf.placeholder(tf.float32, [])
         self.beta = beta
-        self.update_op = tf.assign(beta, self.beta_value)
+        self.update_op = tf.assign(beta, self.beta_placeholder)
 
     def begin(self):
         self._step = -1
@@ -588,12 +589,13 @@ class TeacherUpdateRateHook(tf.train.SessionRunHook):
             print(" * Old gamma {}".format(self.beta_value))
             self.beta_value = self.beta_value * self.update_rate_decay
             print(" * New gamma {}".format(self.beta_value))
-            run_context.session.run(self.update_op, feed_dict={self.beta_placeholder: self.beta})
+            run_context.session.run(self.update_op, feed_dict={self.beta_placeholder: self.beta_value})
         return tf.train.SessionRunArgs(self.beta)
 
     def after_run(self, run_context, run_values):
-        beta = run_values.results
-        print("Gamma value after run {}".format(beta))
+        if self._step % self.update_rate_schedule == 0:
+            beta = run_values.results
+            print("Gamma value after run {}".format(beta))
 
 def get_masked_lm_output(bert_config, input_tensor, output_weights, positions,
                          label_ids, label_weights):
@@ -743,6 +745,7 @@ def input_fn_builder(input_files,
     params['pad_id'] = pad_id
     params['cls_id'] = cls_id
     params['sep_id'] = sep_id
+    params['seq_len']= max_seq_length
     d = d.apply(
         tf.contrib.data.map_and_batch(
             lambda record: _decode_record(record, name_to_features, params),
@@ -757,6 +760,16 @@ def input_fn_builder(input_files,
 def _decode_record(record, name_to_features, params):
   """Decodes a record to a TensorFlow example."""
   example = tf.parse_single_example(record, name_to_features)
+
+  #mask CLS, SEP
+  cls_id = params['cls_id']
+  sep_id = params['sep_id']
+  seq_len = params['seq_len']
+  input_mask = example['input_mask']
+  input_ids = example['input_ids']
+  mask = tf.zeros([seq_len], dtype=input_mask.dtype)
+  input_mask = tf.where(tf.logical_not(tf.logical_or(tf.equal(input_ids, sep_id), tf.equal(input_ids, cls_id))), input_mask, mask)
+  example['input_mask'] = input_mask
 
   # tf.Example only supports tf.int64, but the TPU only supports tf.int32.
   # So cast all int64 to int32.

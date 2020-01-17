@@ -122,6 +122,7 @@ def write_instance_to_example_files(instances, tokenizer, max_seq_length,
       else:
         tags_ids.append(-1)
     input_mask = [1] * len(input_ids)
+    #set input mask of cls, sep is zero
     segment_ids = list(instance.segment_ids)
     assert len(input_ids) <= max_seq_length
 

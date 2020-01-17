@@ -209,6 +209,7 @@ def model_fn_builder(bert_config, init_checkpoint, learning_rate,
         masked_lm_ids = []
         masked_lm_positions = []
         masked_lm_weights = []
+        #TODO: exclude CLS and SEP
         for input_id, entropy in zip(input_ids, entropies):
             mask_ids = np.argpartition(entropy,-max_predictions_per_seq)[-max_predictions_per_seq:]
             label_ids = input_id[mask_ids]
