@@ -19,6 +19,8 @@ from __future__ import division
 from __future__ import print_function
 
 import os
+import time
+
 import modeling
 import optimization
 import tensorflow as tf
@@ -70,6 +72,7 @@ flags.DEFINE_float("masked_lm_prob", 0.15, "Masked LM probability.")
 flags.DEFINE_float("teacher_update_rate", 0.33, "How often we update the teacher")
 flags.DEFINE_integer("teacher_rate_update_step", 1000, "How often we update teacher learning rate")
 flags.DEFINE_float("teacher_rate_decay", 0.963, "Decay rate for teacher update rate")
+flags.DEFINE_float("teacher_learning_rate", 5e-5, "The initial learning rate for Adam teacher.")
 
 ## Other parameters
 flags.DEFINE_string(
@@ -157,7 +160,9 @@ def mask_special_token(probability_matrix, labels, pad_id, cls_id, sep_id):
 
 def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate,
                      num_train_steps, num_warmup_steps, use_tpu,
-                     use_one_hot_embeddings, vocab_size, pad_id, cls_id, sep_id, mask_id, max_predictions_per_seq):
+                     use_one_hot_embeddings, vocab_size, pad_id, cls_id, sep_id, mask_id,
+                     max_predictions_per_seq,
+                     teacher_learning_rate, teacher_update_rate, teacher_rate_update_step, teacher_rate_decay):
   """Returns `model_fn` closure for TPUEstimator."""
 
   def model_fn(features, labels, mode, params):  # pylint: disable=unused-argument
@@ -261,6 +266,7 @@ def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate
             use_one_hot_embeddings=use_one_hot_embeddings)
 
         input_states = ent_model.get_sequence_output()
+        input_states = tf.stop_gradient(input_states)
 
         teacher_model = teacher.TeacherModel(
             config=teacher_config,
@@ -308,17 +314,27 @@ def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate
     student_loss = total_loss
     teacher_loss = None
     if mode == tf.estimator.ModeKeys.TRAIN:
-        # Update teacher
-        # Reward is student loss
-        # Baseline is the mean of reward (but we only have 1 sample)
-        # masked_lm_example_loss
-        shape = teacher.get_shape_list(masked_lm_ids, expected_rank=2)
-        batch_size = shape[0]
-        seq_len = shape[1]
-        student_per_example_loss = tf.reshape(masked_lm_example_loss, [batch_size, seq_len])
-        reward = tf.reduce_mean(student_per_example_loss, 1)
-        reward = tf.stop_gradient(reward)
-        teacher_loss = tf.reduce_mean(- log_q * reward)
+        # teacher update rate
+        teacher_update_rate = tf.Variable(0.5)
+
+        def compute_teacher_loss():
+            # Update teacher
+            # Reward is student loss
+            # Baseline is the mean of reward (but we only have 1 sample)
+            # masked_lm_example_loss
+            shape = teacher.get_shape_list(masked_lm_ids, expected_rank=2)
+            batch_size = shape[0]
+            seq_len = shape[1]
+            student_per_example_loss = tf.reshape(masked_lm_example_loss, [batch_size, seq_len])
+            reward = tf.reduce_mean(student_per_example_loss, 1)
+            reward = tf.stop_gradient(reward)
+            teacher_loss = tf.reduce_mean(- log_q * reward)
+            return teacher_loss
+
+        coin_toss = tf.random.uniform([])
+        # coin_toss = tf.Print(coin_toss, [coin_toss])
+        teacher_loss = tf.cond(coin_toss < teacher_update_rate, lambda : compute_teacher_loss(), lambda: tf.constant(0.0))
+        # teacher_loss = tf.Print(teacher_loss, [teacher_loss])
         total_loss = student_loss + teacher_loss
 
 
@@ -352,8 +368,11 @@ def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate
       student_train_op = optimization.create_optimizer(
           student_loss, learning_rate, num_train_steps, num_warmup_steps, use_tpu)
       teacher_train_op = optimization.create_optimizer(
-          teacher_loss, learning_rate, num_train_steps, num_warmup_steps, use_tpu)
-      train_op = tf.group(student_train_op, teacher_train_op)
+          teacher_loss, teacher_learning_rate, num_train_steps, num_warmup_steps, use_tpu)
+
+      train_op = tf.cond(coin_toss < teacher_update_rate,
+                         lambda: tf.group(student_train_op, teacher_train_op),
+                         lambda: student_train_op)
 
       logging_hook = tf.train.LoggingTensorHook({"loss": total_loss,
                                                 'teacher_loss': teacher_loss,
@@ -541,7 +560,7 @@ def sampling_a_subset(logZ, logp, max_predictions_per_seq):
 class TeacherUpdateRateHook(tf.train.SessionRunHook):
     """Logs model stats to a csv."""
 
-    def __init__(self, scope_name, init_update_rate, update_rate_schedule, update_rate_decay):
+    def __init__(self, init_update_rate, update_rate_schedule, update_rate_decay, beta):
         """
         Set class variables
         :param scope_name:
@@ -551,17 +570,30 @@ class TeacherUpdateRateHook(tf.train.SessionRunHook):
         :param batch_size:
             batch size during training
         """
-        self.scope_name = scope_name
-        self.update_rate = init_update_rate
+        self.beta_value = init_update_rate
         self.update_rate_schedule = update_rate_schedule
         self.update_rate_decay = update_rate_decay
-        self._step = 0
+        self.beta_placeholder = tf.placeholder(tf.float32, [])
+        self.beta = beta
+        self.update_op = tf.assign(beta, self.beta_value)
+
+    def begin(self):
+        self._step = -1
+        self._start_time =  time.time()
 
     def before_run(self, run_context):
-        pass
+        self._step += 1
+        if self._step % self.update_rate_schedule == 0:
+            print("Update teacher learning rate")
+            print(" * Old gamma {}".format(self.beta_value))
+            self.beta_value = self.beta_value * self.update_rate_decay
+            print(" * New gamma {}".format(self.beta_value))
+            run_context.session.run(self.update_op, feed_dict={self.beta_placeholder: self.beta})
+        return tf.train.SessionRunArgs(self.beta)
 
     def after_run(self, run_context, run_values):
-        pass
+        beta = run_values.results
+        print("Gamma value after run {}".format(beta))
 
 def get_masked_lm_output(bert_config, input_tensor, output_weights, positions,
                          label_ids, label_weights):
@@ -796,7 +828,11 @@ def main(_):
       sep_id = sep_id,
       cls_id = cls_id,
       max_predictions_per_seq=FLAGS.max_predictions_per_seq,
-      mask_id = mask_id
+      mask_id = mask_id,
+      teacher_learning_rate = FLAGS.teacher_learning_rate,
+      teacher_update_rate = FLAGS.teacher_update_rate,
+      teacher_rate_update_step = FLAGS.teacher_rate_update_step,
+      teacher_rate_decay = FLAGS.teacher_rate_decay
   )
 
   # If TPU is not available, this will fall back to normal Estimator on CPU
