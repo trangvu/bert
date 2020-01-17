@@ -277,7 +277,7 @@ def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate
 
         logZ, log_prob = calculate_partition_table(teacher_config, teacher_model.get_action_probs(),
                                                    max_predictions_per_seq)
-        samples, log_q = sampling_a_subset(logZ, log_prob, max_predictions_per_seq)
+        samples, log_q = sampling_a_subset(raw_input_mask, logZ, log_prob, max_predictions_per_seq)
 
         input_ids, input_mask, masked_lm_ids, masked_lm_positions, masked_lm_weights, tag_ids = tf.py_func(
             apply_teacher_masking,
@@ -493,12 +493,13 @@ def calculate_partition_table(teacher_config, output_weights, max_predictions_pe
         logZ = tf.transpose(logZ, [1,2,0])
     return logZ, logp
 
-def sampling_a_subset(logZ, logp, max_predictions_per_seq):
+def sampling_a_subset(input_mask, logZ, logp, max_predictions_per_seq):
     shape = teacher.get_shape_list(logp, expected_rank=2)
     batch_size = shape[0]
     seq_len = shape[1]
 
     pred_len = max_predictions_per_seq + 1
+    in_mask = tf.cast(input_mask, dtype=tf.bool)
 
     def gather_z_indexes(sequence_tensor, positions):
         """Gathers the vectors at the specific positions over a minibatch."""
@@ -523,6 +524,7 @@ def sampling_a_subset(logZ, logp, max_predictions_per_seq):
     def sampling_body(j, subset, count, left, log_q):
         # calculate log_q_yes and log_q_no
         logp_j = logp[:,j]
+        in_mask_j = in_mask[:,j]
         log_Z_total = gather_z_indexes(logZ[:, j, :], left) # b
         log_Z_yes = gather_z_indexes(logZ[:, j+1, :], left - 1) # b
         log_q_yes = logp_j + log_Z_yes - log_Z_total
@@ -530,7 +532,8 @@ def sampling_a_subset(logZ, logp, max_predictions_per_seq):
         # draw 2 Gumbel noise and compute action by argmax
         logits = tf.stack([log_q_no, log_q_yes])
         actions = gumbel.gumbel_softmax(logits)
-        action_mask = tf.cast(tf.argmax(actions, 1), dtype=tf.int32)
+        action_mask = tf.cast(tf.argmax(actions, 1), dtype=tf.bool)
+        action_mask = tf.cast(tf.logical_and(in_mask_j, action_mask),dtype=tf.int32)
         mask = tf.where(tf.greater(left,0), action_mask, tf.zeros([batch_size], dtype=tf.int32))
         actions = tf.reduce_max(actions, 1)
         log_actions = tf.log(actions) * tf.cast(mask, dtype=tf.float32)
