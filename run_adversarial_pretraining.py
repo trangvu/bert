@@ -474,7 +474,7 @@ def calculate_partition_table(input_mask, output_weights, max_predictions_per_se
         logp = tf.log(tf.clip_by_value(output_weights,1e-20,1.0))
         logp = tf.reverse(logp, [1])
         accum_logp = tf.cumsum(logp, axis=1, reverse=True)
-        init_value = tf.ones_like(tf.squeeze(logp[:,-1]), dtype=tf.float32) * tf.log(1e-20)
+        # init_value = tf.ones_like(tf.squeeze(logp[:,-1]), dtype=tf.float32) * tf.log(1e-20)
 
         def accum_cond(j, logZ_j, logb, loga):
             return tf.greater(j, -1)
@@ -501,8 +501,9 @@ def calculate_partition_table(input_mask, output_weights, max_predictions_per_se
             log_yes = logp + shifted_lastZ  # b x N
             logZ_j = tf.TensorArray(tf.float32, size=seq_len + 1)
             #minus 1 because of the last token is [SEP]
-            logZ_j = logZ_j.write(seq_len - k + 1, accum_logp[:,seq_len - k])
-            _, logZ_j, logb, loga = tf.while_loop(accum_cond, accum_body, [seq_len - k, logZ_j, log_yes, init_value])
+            init_value = accum_logp[:,seq_len - k]
+            logZ_j = logZ_j.write(seq_len - k, init_value)
+            _, logZ_j, logb, loga = tf.while_loop(accum_cond, accum_body, [seq_len - k - 1, logZ_j, log_yes, init_value])
             logZ_j = logZ_j.stack()  # N x b
             logZ_j = tf.transpose(logZ_j, [1, 0])  # b x N
             logZ = logZ.write(k, logZ_j)
