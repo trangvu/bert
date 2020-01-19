@@ -334,10 +334,10 @@ def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate
             student_per_example_loss = tf.reshape(masked_lm_example_loss, [batch_size, seq_len])
             reward = tf.reduce_mean(student_per_example_loss, 1)
             reward = tf.stop_gradient(reward)
-            # baseline = tf.reduce_mean(reward, -1)
-            # baseline = tf.Print(baseline, [baseline])
-            # reward = tf.Print(reward, [reward])
-            # reward = tf.abs(reward - baseline)
+            baseline = tf.reduce_mean(reward, -1)
+            baseline = tf.Print(baseline, [baseline])
+            reward = tf.Print(reward, [reward])
+            reward = tf.abs(reward - baseline)
             teacher_loss = tf.reduce_mean(- log_q * reward)
             return teacher_loss
 
