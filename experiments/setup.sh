@@ -24,7 +24,7 @@ export BERT_BASE_DIR=/home/vuth0001/workspace/2019-bert-selective-masking/advers
 export GLUE_DIR=/home/vuth0001/workspace/2019-bert-selective-masking/jiant/data
 /project/da33/data_nlp/natural_language_understanding
 
-python3 -m pip install --ignore-installed --upgrade tensorflow==1.15.0
+python3 -m pip install --ignore-installed --upgrade tensorflow-gpu==1.13.0
 
 cut -d'	' -f1-2
 

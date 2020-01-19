@@ -10,7 +10,7 @@ module load cudnn/7.3.0-cuda9
 source $ROOT_DIR/env/bin/activate
 
 INPUT="train"
-DATASET="$ROOT_DIR"
+DATASET="en-general-128"
 VOCAB_FILE=$SRC_PATH'/config/en_uncase_vocab.txt'
 EXP_NAME=$1
 INPUT_FILE=`echo $DATA_DIR/$DATASET/train-* |  sed -r 's/[ ]+/,/g'`
