@@ -199,6 +199,14 @@ def model_fn_builder(bert_config, init_checkpoint, learning_rate,
             input_id[mask_ids[keep_indices]] = label_ids[keep_indices]
             random_ids = np.random.choice(vocab_size - 5, num_keep) + 5
             input_id[mask_ids[random_indices]] = random_ids
+
+            if len(mask_ids) < max_predictions_per_seq:
+                print("WARNING less than k")
+                #padding if we have less than k
+                num_pad = max_predictions_per_seq - len(mask_ids)
+                mask_ids = np.pad(mask_ids, (0, num_pad), 'constant', constant_values=(0,0))
+                label_ids = np.pad(label_ids, (0, num_pad), 'constant', constant_values=(0,0))
+                masked_lm_weight = np.pad(masked_lm_weight, (0, num_pad), constant_values=(0.0,0.0))
             masked_lm_ids.append(label_ids)
             masked_lm_positions.append(mask_ids)
             masked_lm_weights.append(masked_lm_weight)
