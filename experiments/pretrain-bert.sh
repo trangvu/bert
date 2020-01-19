@@ -5,7 +5,7 @@ DATA_ROOT=$ROOT_DIR'/train'
 DATA_DIR=$DATA_ROOT
 #
 module load python/3.6.2
-module load cuda/10.1
+module load cuda/10.0
 module load cudnn/7.6.5-cuda10.1
 source $ROOT_DIR/env/bin/activate
 
