@@ -343,6 +343,7 @@ def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate
 
         coin_toss = tf.random.uniform([])
         coin_toss = tf.Print(coin_toss, [coin_toss])
+        log_q = tf.Print(log_q, [log_q])
         teacher_loss = tf.cond(coin_toss < teacher_update, lambda : compute_teacher_loss(), lambda: tf.constant(0.0))
         teacher_loss = tf.Print(teacher_loss, [teacher_loss])
         total_loss = student_loss + teacher_loss
@@ -470,8 +471,8 @@ def calculate_partition_table(input_mask, output_weights, max_predictions_per_se
         # mask logp
         output_weights = tf.cast(input_mask,dtype=tf.float32) * output_weights
         # normalize pi_i = pi_i / (1 - pi_i)
-        logp = tf.log(tf.clip_by_value(output_weights,1e-20,1.0)) - tf.log(tf.clip_by_value(1 - output_weights,1e-20,1.0))
-        # logp = tf.log(tf.clip_by_value(output_weights,1e-20,1.0))
+        # logp = tf.log(tf.clip_by_value(output_weights,1e-20,1.0)) - tf.log(tf.clip_by_value(1 - output_weights,1e-20,1.0))
+        logp = tf.log(tf.clip_by_value(output_weights,1e-20,1.0))
         logp = tf.reverse(logp, [1])
         accum_logp = tf.cumsum(logp, axis=1, reverse=True)
         # init_value = tf.ones_like(tf.squeeze(logp[:,-1]), dtype=tf.float32) * tf.log(1e-20)
