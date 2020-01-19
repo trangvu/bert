@@ -42,7 +42,8 @@ class BertConfig(object):
                attention_probs_dropout_prob=0.1,
                max_position_embeddings=512,
                type_vocab_size=16,
-               initializer_range=0.02):
+               initializer_range=0.02,
+               embedding_size=768):
     """Constructs BertConfig.
 
     Args:
@@ -78,6 +79,7 @@ class BertConfig(object):
     self.max_position_embeddings = max_position_embeddings
     self.type_vocab_size = type_vocab_size
     self.initializer_range = initializer_range
+    self.embedding_size = embedding_size
 
   @classmethod
   def from_dict(cls, json_object):
@@ -175,7 +177,7 @@ class BertModel(object):
         (self.embedding_output, self.embedding_table) = embedding_lookup(
             input_ids=input_ids,
             vocab_size=config.vocab_size,
-            embedding_size=config.hidden_size,
+            embedding_size=config.embedding_size,
             initializer_range=config.initializer_range,
             word_embedding_name="word_embeddings",
             use_one_hot_embeddings=use_one_hot_embeddings)

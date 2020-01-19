@@ -18,17 +18,19 @@ OUT_DIR="${ROOT_DIR}/models/${EXP_NAME}"
 mkdir -p $OUT_DIR
 
 CONFIG_FILE=$SRC_PATH'/config/small_bert_config.json'
+TEACHER_CONFIG_FILE=$SRC_PATH'/config/small_tearcher_config.json'
 shift
 PARAMS="$@"
 
 set -x
 
-cd $SRC_PATH && python3 run_pretraining.py \
+cd $SRC_PATH && python3 run_adversarial_pretraining.py \
 --input_file=$INPUT_FILE \
 --output_dir=$OUT_DIR \
 --do_train=True \
 --do_eval=True \
 --bert_config_file=$CONFIG_FILE \
+--teacher_config_file=$TEACHER_CONFIG_FILE\
 --train_batch_size=128 \
 --max_seq_length=128 \
 --max_predictions_per_seq=20 \
