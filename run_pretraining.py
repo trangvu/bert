@@ -187,8 +187,13 @@ def model_fn_builder(bert_config, init_checkpoint, learning_rate,
             input_id[mask_ids] = mask_id
 
             # 10% is KEEP and 10% is replaced with random words
-            num_keep = int(0.1 * max_predictions_per_seq)
-            special_indices = np.random.choice(max_predictions_per_seq, num_keep * 2, replace=False)
+            if max_predictions_per_seq < k:
+                num_keep = int(0.1 * max_predictions_per_seq)
+                special_indices = np.random.choice(max_predictions_per_seq, num_keep * 2, replace=False)
+            else:
+                num_keep = int(0.1 * k)
+                special_indices = np.random.choice(k, num_keep * 2, replace=False)
+
             keep_indices = special_indices[:num_keep]
             random_indices = special_indices[num_keep:]
             input_id[mask_ids[keep_indices]] = label_ids[keep_indices]
