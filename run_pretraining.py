@@ -177,7 +177,11 @@ def model_fn_builder(bert_config, init_checkpoint, learning_rate,
         masked_lm_positions = []
         masked_lm_weights = []
         for input_id, p in zip(input_ids, probs):
-            mask_ids = np.random.choice(seq_len, max_predictions_per_seq, replace=False, p=p)
+            k = np.count_nonzero(p)
+            if max_predictions_per_seq < k:
+                mask_ids = np.random.choice(seq_len, max_predictions_per_seq, replace=False, p=p)
+            else:
+                mask_ids = np.random.choice(seq_len, k, replace=False, p=p)
             label_ids = input_id[mask_ids]
             masked_lm_weight = [1.0] * len(mask_ids)
             input_id[mask_ids] = mask_id

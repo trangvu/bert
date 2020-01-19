@@ -18,7 +18,7 @@ OUT_DIR="${ROOT_DIR}/models/${EXP_NAME}"
 mkdir -p $OUT_DIR
 
 CONFIG_FILE=$SRC_PATH'/config/small_bert_config.json'
-TEACHER_CONFIG_FILE=$SRC_PATH'/config/small_tearcher_config.json'
+TEACHER_CONFIG_FILE=$SRC_PATH'/config/small_teacher_config.json'
 shift
 PARAMS="$@"
 
