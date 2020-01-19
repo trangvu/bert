@@ -8,7 +8,7 @@
 
 ### Train from scratch
     ## English
-    submit-job-rqtp.sh --job-name=scratch-rand scratch-rand.sh
-    submit-job-rqtp.sh --job-name=scratch-pos scratch-pos.sh
-    submit-job-rqtp.sh --job-name=scratch-entropy scratch-entropy.sh
-    submit-job-rqtp.sh --job-name=scratch-adv scratch-adv.sh
+    sbatch --job-name=scratch-rand submit-job-rqtp.sh  scratch-rand.sh
+    sbatch --job-name=scratch-pos submit-job-rqtp.sh  scratch-pos.sh
+    sbatch --job-name=scratch-entropy submit-job-rqtp.sh  scratch-entropy.sh
+    sbatch --job-name=scratch-adv submit-job-rqtp.sh  scratch-adv.sh
