@@ -195,19 +195,36 @@ def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate
         masked_lm_positions = []
         masked_lm_weights = []
         for input_id, p in zip(input_ids, probs):
-            mask_ids = np.random.choice(seq_len, max_predictions_per_seq, replace=False, p=p)
+            k = np.count_nonzero(p)
+            if max_predictions_per_seq < k:
+                mask_ids = np.random.choice(seq_len, max_predictions_per_seq, replace=False, p=p)
+            else:
+                mask_ids = np.random.choice(seq_len, k, replace=False, p=p)
             label_ids = input_id[mask_ids]
             masked_lm_weight = [1.0] * len(mask_ids)
             input_id[mask_ids] = mask_id
 
             # 10% is KEEP and 10% is replaced with random words
-            num_keep = int(0.1 * max_predictions_per_seq)
-            special_indices = np.random.choice(max_predictions_per_seq, num_keep * 2, replace=False)
+            if max_predictions_per_seq < k:
+                num_keep = int(0.1 * max_predictions_per_seq)
+                special_indices = np.random.choice(max_predictions_per_seq, num_keep * 2, replace=False)
+            else:
+                num_keep = int(0.1 * k)
+                special_indices = np.random.choice(k, num_keep * 2, replace=False)
+
             keep_indices = special_indices[:num_keep]
             random_indices = special_indices[num_keep:]
             input_id[mask_ids[keep_indices]] = label_ids[keep_indices]
             random_ids = np.random.choice(vocab_size - 5, num_keep) + 5
             input_id[mask_ids[random_indices]] = random_ids
+
+            if len(mask_ids) < max_predictions_per_seq:
+                print("WARNING less than k")
+                # padding if we have less than k
+                num_pad = max_predictions_per_seq - len(mask_ids)
+                mask_ids = np.pad(mask_ids, (0, num_pad), 'constant', constant_values=(0, 0))
+                label_ids = np.pad(label_ids, (0, num_pad), 'constant', constant_values=(0, 0))
+                masked_lm_weight = np.pad(masked_lm_weight, (0, num_pad), constant_values=(0.0, 0.0))
             masked_lm_ids.append(label_ids)
             masked_lm_positions.append(mask_ids)
             masked_lm_weights.append(masked_lm_weight)
@@ -335,17 +352,17 @@ def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate
             reward = tf.reduce_mean(student_per_example_loss, 1)
             reward = tf.stop_gradient(reward)
             baseline = tf.reduce_mean(reward, -1)
-            baseline = tf.Print(baseline, [baseline])
-            reward = tf.Print(reward, [reward])
+            baseline = tf.Print(baseline, [baseline], "Baseline: ")
+            reward = tf.Print(reward, [reward], "Reward: ")
             reward = tf.abs(reward - baseline)
             teacher_loss = tf.reduce_mean(- log_q * reward)
             return teacher_loss
 
         coin_toss = tf.random.uniform([])
-        coin_toss = tf.Print(coin_toss, [coin_toss])
-        log_q = tf.Print(log_q, [log_q])
+        coin_toss = tf.Print(coin_toss, [coin_toss], 'Coin Toss: ')
+        log_q = tf.Print(log_q, [log_q], 'log_q: ')
         teacher_loss = tf.cond(coin_toss < teacher_update, lambda : compute_teacher_loss(), lambda: tf.constant(0.0))
-        teacher_loss = tf.Print(teacher_loss, [teacher_loss])
+        teacher_loss = tf.Print(teacher_loss, [teacher_loss], 'Teacher loss: ')
         total_loss = student_loss + teacher_loss
 
 
@@ -469,7 +486,7 @@ def calculate_partition_table(input_mask, output_weights, max_predictions_per_se
         initZ = initZ.write(tf.constant(0), logZ_0)
 
         # mask logp
-        output_weights = tf.cast(input_mask,dtype=tf.float32) * output_weights
+        # output_weights = tf.cast(input_mask,dtype=tf.float32) * output_weights
         # normalize pi_i = pi_i / (1 - pi_i)
         # logp = tf.log(tf.clip_by_value(output_weights,1e-20,1.0)) - tf.log(tf.clip_by_value(1 - output_weights,1e-20,1.0))
         logp = tf.log(tf.clip_by_value(output_weights,1e-20,1.0))

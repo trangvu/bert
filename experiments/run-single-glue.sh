@@ -1,24 +1,28 @@
 #!/bin/bash
-#module load cuda/10.1
-#module load cudnn/7.6.5-cuda10.1
-#module load anaconda/2019.03-Python3.7-gcc5
-#conda activate jiant
-module load gcc/5.4.0
-#export BERT_BASE_DIR=/scratch/da33/trang/masked-lm/models/bert_base_uncased
-#export GLUE_DIR=/projects/da33/data_nlp/natural_language_understanding
 ROOT_DIR=`cd ../.. &&pwd`
 DATE=`date '+%Y%m%d-%H%M%S'`
 SRC_PATH=$ROOT_DIR'/bert'
 
+module load python/3.6.2
+module load cuda/10.0
+module load cudnn/7.6.5-cuda10.1
+source $ROOT_DIR/env/bin/activate
+
 OUT_DIR=$ROOT_DIR/results
 mkdir -p $OUT_DIR
 index=$1
-EXP_NAME=${2:-glue_exp}
+MODEL_DIR=$2
+EXP_NAME=$3
 TASKS=( MNLI QQP QNLI "SST-2" CoLA "STS-B" MRPC RTE WNLI )
+LEARNING_RATES=( 3 3 3 3 3 10 3 10 3 )
 
 TASK_NAME=${TASKS[$index]}
+LEARNING_RATE=${LEARNING_RATES[$index]}
 MODEL_NAME="bert_model.ckpt"
 OUTPUT=$OUT_DIR/$EXP_NAME/"run-"$DATE/$TASK_NAME
+VOCAB_FILE=$SRC_PATH'/config/en_uncase_vocab.txt'
+CONFIG_FILE=$SRC_PATH'/config/small_bert_config.json'
+
 
 set -x
 
@@ -28,13 +32,13 @@ cd $SRC_PATH && python3 run_classifier.py \
   --do_train=true \
   --do_eval=true \
   --data_dir=$GLUE_DIR/$TASK_NAME \
-  --vocab_file=$BERT_BASE_DIR/vocab.txt \
-  --bert_config_file=$BERT_BASE_DIR/bert_config.json \
-  --init_checkpoint=$BERT_BASE_DIR/bert_model.ckpt \
+  --vocab_file=$VOCAB_FILE \
+  --bert_config_file=$CONFIG_FILE \
+  --init_checkpoint=MODEL_DIR/model.ckpt \
   --max_seq_length=128 \
   --train_batch_size=32 \
-  --learning_rate=2e-5 \
-  --num_train_epochs=3.0 \
+  --learning_rate=3e-4 \
+  --num_train_epochs=$LEARNING_RATE \
   --output_dir=$OUTPUT
 
 
