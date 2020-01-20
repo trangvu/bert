@@ -578,8 +578,8 @@ def sampling_a_subset(input_mask, logZ, logp, max_predictions_per_seq):
 
         subset = subset.stack()  # K x b x N
         subset = tf.transpose(subset, [1, 0])
-        partition = logZ[:,0, max_predictions_per_seq]
-        log_q = log_q - partition
+        # partition = logZ[:,0, max_predictions_per_seq]
+        # log_q = log_q - partition
     return subset, log_q
 
 
