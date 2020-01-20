@@ -219,7 +219,7 @@ def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate
             input_id[mask_ids[random_indices]] = random_ids
 
             if len(mask_ids) < max_predictions_per_seq:
-                print("WARNING less than k")
+                # print("WARNING less than k")
                 # padding if we have less than k
                 num_pad = max_predictions_per_seq - len(mask_ids)
                 mask_ids = np.pad(mask_ids, (0, num_pad), 'constant', constant_values=(0, 0))
@@ -262,7 +262,7 @@ def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate
             input_id[mask_ids[random_indices]] = random_ids
 
             if len(mask_ids) < max_predictions_per_seq:
-                print("WARNING less than k")
+                # print("WARNING less than k")
                 #padding if we have less than k
                 num_pad = max_predictions_per_seq - len(mask_ids)
                 mask_ids = np.pad(mask_ids, (0, num_pad), 'constant', constant_values=(0,0))
@@ -299,6 +299,7 @@ def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate
 
         logZ, log_prob = calculate_partition_table(raw_input_mask, teacher_model.get_action_probs(),
                                                        max_predictions_per_seq)
+        log_prob = tf.Print(log_prob, [log_prob], "Log prob: ")
         # logp = tf.reverse(log_prob, [1])
         samples, log_q = sampling_a_subset(raw_input_mask, logZ, log_prob, max_predictions_per_seq)
 
@@ -351,10 +352,10 @@ def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate
             student_per_example_loss = tf.reshape(masked_lm_example_loss, [batch_size, seq_len])
             reward = tf.reduce_mean(student_per_example_loss, 1)
             reward = tf.stop_gradient(reward)
-            baseline = tf.reduce_mean(reward, -1)
-            baseline = tf.Print(baseline, [baseline], "Baseline: ")
+            # baseline = tf.reduce_mean(reward, -1)
+            # baseline = tf.Print(baseline, [baseline], "Baseline: ")
             reward = tf.Print(reward, [reward], "Reward: ")
-            reward = tf.abs(reward - baseline)
+            # reward = tf.abs(reward - baseline)
             teacher_loss = tf.reduce_mean(- log_q * reward)
             return teacher_loss
 
@@ -486,11 +487,12 @@ def calculate_partition_table(input_mask, output_weights, max_predictions_per_se
         initZ = initZ.write(tf.constant(0), logZ_0)
 
         # mask logp
-        # output_weights = tf.cast(input_mask,dtype=tf.float32) * output_weights
+        output_weights = tf.cast(input_mask,dtype=tf.float32) * output_weights
         # normalize pi_i = pi_i / (1 - pi_i)
         # logp = tf.log(tf.clip_by_value(output_weights,1e-20,1.0)) - tf.log(tf.clip_by_value(1 - output_weights,1e-20,1.0))
-        logp = tf.log(tf.clip_by_value(output_weights,1e-20,1.0))
+        logp = tf.log(tf.clip_by_value(output_weights,1e-10,1.0))
         logp = tf.reverse(logp, [1])
+        # logp = tf.log(output_weights)
         accum_logp = tf.cumsum(logp, axis=1, reverse=True)
         # init_value = tf.ones_like(tf.squeeze(logp[:,-1]), dtype=tf.float32) * tf.log(1e-20)
 

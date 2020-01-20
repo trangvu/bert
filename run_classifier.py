@@ -145,33 +145,14 @@ class InputExample(object):
     self.label = label
 
 
-class PaddingInputExample(object):
-  """Fake example so the num input examples is a multiple of the batch size.
-
-  When running eval/predict on the TPU, we need to pad the number of examples
-  to be a multiple of the batch size, because the TPU requires a fixed batch
-  size. The alternative is to drop the last batch, which is bad because it means
-  the entire output data won't be generated.
-
-  We use this class instead of `None` because treating `None` as padding
-  battches could cause silent errors.
-  """
-
-
 class InputFeatures(object):
   """A single set of features of data."""
 
-  def __init__(self,
-               input_ids,
-               input_mask,
-               segment_ids,
-               label_id,
-               is_real_example=True):
+  def __init__(self, input_ids, input_mask, segment_ids, label_id):
     self.input_ids = input_ids
     self.input_mask = input_mask
     self.segment_ids = segment_ids
     self.label_id = label_id
-    self.is_real_example = is_real_example
 
 
 class DataProcessor(object):
@@ -252,8 +233,8 @@ class XnliProcessor(DataProcessor):
     return ["contradiction", "entailment", "neutral"]
 
 
-class MnliProcessor(DataProcessor):
-  """Processor for the MultiNLI data set (GLUE version)."""
+class ColaProcessor(DataProcessor):
+  """Processor for the CoLA data set (GLUE version)."""
 
   def get_train_examples(self, data_dir):
     """See base class."""
@@ -263,17 +244,57 @@ class MnliProcessor(DataProcessor):
   def get_dev_examples(self, data_dir):
     """See base class."""
     return self._create_examples(
-        self._read_tsv(os.path.join(data_dir, "dev_matched.tsv")),
-        "dev_matched")
+        self._read_tsv(os.path.join(data_dir, "dev.tsv")), "dev")
 
   def get_test_examples(self, data_dir):
     """See base class."""
     return self._create_examples(
-        self._read_tsv(os.path.join(data_dir, "test_matched.tsv")), "test")
+        self._read_tsv(os.path.join(data_dir, "test.tsv")), "test")
 
   def get_labels(self):
     """See base class."""
-    return ["contradiction", "entailment", "neutral"]
+    return ["0", "1"]
+
+  def _create_examples(self, lines, set_type):
+    """Creates examples for the training and dev sets."""
+    examples = []
+    for (i, line) in enumerate(lines):
+      # Only the test set has a header
+      if set_type == "test" and i == 0:
+        continue
+      guid = "%s-%s" % (set_type, i)
+      if set_type == "test":
+        text_a = tokenization.convert_to_unicode(line[1])
+        label = "0"
+      else:
+        text_a = tokenization.convert_to_unicode(line[3])
+        label = tokenization.convert_to_unicode(line[1])
+      examples.append(
+          InputExample(guid=guid, text_a=text_a, text_b=None, label=label))
+    return examples
+
+
+class SstProcessor(DataProcessor):
+  """Processor for the SST-2 data set (GLUE version)."""
+
+  def get_train_examples(self, data_dir):
+    """See base class."""
+    return self._create_examples(
+        self._read_tsv(os.path.join(data_dir, "train.tsv")), "train")
+
+  def get_dev_examples(self, data_dir):
+    """See base class."""
+    return self._create_examples(
+        self._read_tsv(os.path.join(data_dir, "dev.tsv")), "dev")
+
+  def get_test_examples(self, data_dir):
+    """See base class."""
+    return self._create_examples(
+        self._read_tsv(os.path.join(data_dir, "test.tsv")), "test")
+
+  def get_labels(self):
+    """See base class."""
+    return ["0", "1"]
 
   def _create_examples(self, lines, set_type):
     """Creates examples for the training and dev sets."""
@@ -281,15 +302,15 @@ class MnliProcessor(DataProcessor):
     for (i, line) in enumerate(lines):
       if i == 0:
         continue
-      guid = "%s-%s" % (set_type, tokenization.convert_to_unicode(line[0]))
-      text_a = tokenization.convert_to_unicode(line[8])
-      text_b = tokenization.convert_to_unicode(line[9])
+      guid = "%s-%s" % (set_type, i)
       if set_type == "test":
-        label = "contradiction"
+        text_a = tokenization.convert_to_unicode(line[1])
+        label = "0"
       else:
-        label = tokenization.convert_to_unicode(line[-1])
+        text_a = tokenization.convert_to_unicode(line[0])
+        label = tokenization.convert_to_unicode(line[1])
       examples.append(
-          InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label))
+          InputExample(guid=guid, text_a=text_a, text_b=None, label=label))
     return examples
 
 
@@ -333,8 +354,8 @@ class MrpcProcessor(DataProcessor):
     return examples
 
 
-class ColaProcessor(DataProcessor):
-  """Processor for the CoLA data set (GLUE version)."""
+class QqpProcessor(DataProcessor):
+  """Processor for the QQP data set (GLUE version)."""
 
   def get_train_examples(self, data_dir):
     """See base class."""
@@ -359,33 +380,238 @@ class ColaProcessor(DataProcessor):
     """Creates examples for the training and dev sets."""
     examples = []
     for (i, line) in enumerate(lines):
-      # Only the test set has a header
-      if set_type == "test" and i == 0:
+      if i == 0:
+        continue
+      guid = "%s-%s" % (set_type, i)
+      try:
+        if set_type == "test":
+          text_a = tokenization.convert_to_unicode(line[1])
+          text_b = tokenization.convert_to_unicode(line[2])
+          label = "0"
+        else:
+          text_a = tokenization.convert_to_unicode(line[3])
+          text_b = tokenization.convert_to_unicode(line[4])
+          label = tokenization.convert_to_unicode(line[5])
+      except IndexError:
+        continue
+      examples.append(
+          InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label))
+    return examples
+
+
+class QnliProcessor(DataProcessor):
+  """Processor for the QNLI data set (GLUE version)."""
+
+  def get_train_examples(self, data_dir):
+    """See base class."""
+    return self._create_examples(
+        self._read_tsv(os.path.join(data_dir, "train.tsv")), "train")
+
+  def get_dev_examples(self, data_dir):
+    """See base class."""
+    return self._create_examples(
+        self._read_tsv(os.path.join(data_dir, "dev.tsv")),
+        "dev_matched")
+
+  def get_test_examples(self, data_dir):
+    """See base class."""
+    return self._create_examples(
+        self._read_tsv(os.path.join(data_dir, "test.tsv")), "test")
+
+  def get_labels(self):
+    """See base class."""
+    return ["entailment", "not_entailment"]
+
+  def _create_examples(self, lines, set_type):
+    """Creates examples for the training and dev sets."""
+    examples = []
+    for (i, line) in enumerate(lines):
+      if i == 0:
+        continue
+      guid = "%s-%s" % (set_type, 1)
+      if set_type == "test":
+        text_a = tokenization.convert_to_unicode(line[1])
+        text_b = tokenization.convert_to_unicode(line[2])
+        label = "entailment"
+      else:
+        text_a = tokenization.convert_to_unicode(line[1])
+        text_b = tokenization.convert_to_unicode(line[2])
+        label = tokenization.convert_to_unicode(line[-1])
+      examples.append(
+          InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label))
+    return examples
+
+
+class MnliProcessor(DataProcessor):
+  """Processor for the MultiNLI data set (GLUE version)."""
+
+  def get_train_examples(self, data_dir):
+    """See base class."""
+    return self._create_examples(
+        self._read_tsv(os.path.join(data_dir, "train.tsv")), "train")
+
+  def get_dev_examples(self, data_dir):
+    """See base class."""
+    return self._create_examples(
+        self._read_tsv(os.path.join(data_dir, "dev_matched.tsv")),
+        "dev_matched")
+
+  def get_test_examples(self, data_dir):
+    """See base class."""
+    return self._create_examples(
+        self._read_tsv(os.path.join(data_dir, "test_matched.tsv")), "test")
+
+  def get_labels(self):
+    """See base class."""
+    return ["contradiction", "entailment", "neutral"]
+
+  def _create_examples(self, lines, set_type):
+    """Creates examples for the training and dev sets."""
+    examples = []
+    for (i, line) in enumerate(lines):
+      if i == 0:
+        continue
+      guid = "%s-%s" % (set_type, tokenization.convert_to_unicode(line[0]))
+      text_a = tokenization.convert_to_unicode(line[8])
+      text_b = tokenization.convert_to_unicode(line[9])
+      if set_type == "test":
+        label = "contradiction"
+      else:
+        label = tokenization.convert_to_unicode(line[-1])
+      examples.append(
+          InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label))
+    return examples
+
+
+class RteProcessor(DataProcessor):
+  """Processor for the RTE data set (GLUE version)."""
+
+  def get_train_examples(self, data_dir):
+    """See base class."""
+    return self._create_examples(
+        self._read_tsv(os.path.join(data_dir, "train.tsv")), "train")
+
+  def get_dev_examples(self, data_dir):
+    """See base class."""
+    return self._create_examples(
+        self._read_tsv(os.path.join(data_dir, "dev.tsv")), "dev")
+
+  def get_test_examples(self, data_dir):
+    """See base class."""
+    return self._create_examples(
+        self._read_tsv(os.path.join(data_dir, "test_matched.tsv")), "test")
+
+  def get_labels(self):
+    """See base class."""
+    return ["entailment", "not_entailment"]
+
+  def _create_examples(self, lines, set_type):
+    """Creates examples for the training and dev sets."""
+    examples = []
+    for (i, line) in enumerate(lines):
+      if i == 0:
         continue
       guid = "%s-%s" % (set_type, i)
       if set_type == "test":
         text_a = tokenization.convert_to_unicode(line[1])
+        text_b = tokenization.convert_to_unicode(line[2])
+        label = "entailment"
+      else:
+        text_a = tokenization.convert_to_unicode(line[1])
+        text_b = tokenization.convert_to_unicode(line[2])
+        label = tokenization.convert_to_unicode(line[-1])
+      examples.append(
+          InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label))
+    return examples
+
+
+class SnliProcessor(DataProcessor):
+  """Processor for the SNLI data set (GLUE version)."""
+
+  def get_train_examples(self, data_dir):
+    """See base class."""
+    return self._create_examples(
+        self._read_tsv(os.path.join(data_dir, "train.tsv")), "train")
+
+  def get_dev_examples(self, data_dir):
+    """See base class."""
+    return self._create_examples(
+        self._read_tsv(os.path.join(data_dir, "dev.tsv")), "dev")
+
+  def get_test_examples(self, data_dir):
+    """See base class."""
+    return self._create_examples(
+        self._read_tsv(os.path.join(data_dir, "test.tsv")), "test")
+
+  def get_labels(self):
+    """See base class."""
+    return ["contradiction", "entailment", "neutral"]
+
+  def _create_examples(self, lines, set_type):
+    """Creates examples for the training and dev sets."""
+    examples = []
+    for (i, line) in enumerate(lines):
+      if i == 0:
+        continue
+      guid = "%s-%s" % (set_type, i)
+      if set_type == "test":
+        text_a = tokenization.convert_to_unicode(line[7])
+        text_b = tokenization.convert_to_unicode(line[8])
+        label = "contradiction"
+      else:
+        text_a = tokenization.convert_to_unicode(line[7])
+        text_b = tokenization.convert_to_unicode(line[8])
+        label = tokenization.convert_to_unicode(line[-1])
+      examples.append(
+          InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label))
+    return examples
+
+
+class WnliProcessor(DataProcessor):
+  """Processor for the WNLI data set (GLUE version)."""
+
+  def get_train_examples(self, data_dir):
+    """See base class."""
+    return self._create_examples(
+        self._read_tsv(os.path.join(data_dir, "train.tsv")), "train")
+
+  def get_dev_examples(self, data_dir):
+    """See base class."""
+    return self._create_examples(
+        self._read_tsv(os.path.join(data_dir, "dev.tsv")), "dev")
+
+  def get_test_examples(self, data_dir):
+    """See base class."""
+    return self._create_examples(
+        self._read_tsv(os.path.join(data_dir, "test.tsv")), "test")
+
+  def get_labels(self):
+    """See base class."""
+    return ["0", "1"]
+
+  def _create_examples(self, lines, set_type):
+    """Creates examples for the training and dev sets."""
+    examples = []
+    for (i, line) in enumerate(lines):
+      if i == 0:
+        continue
+      guid = "%s-%s" % (set_type, i)
+      if set_type == "test":
+        text_a = tokenization.convert_to_unicode(line[1])
+        text_b = tokenization.convert_to_unicode(line[2])
         label = "0"
       else:
-        text_a = tokenization.convert_to_unicode(line[3])
-        label = tokenization.convert_to_unicode(line[1])
+        text_a = tokenization.convert_to_unicode(line[1])
+        text_b = tokenization.convert_to_unicode(line[2])
+        label = tokenization.convert_to_unicode(line[-1])
       examples.append(
-          InputExample(guid=guid, text_a=text_a, text_b=None, label=label))
+          InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label))
     return examples
 
 
 def convert_single_example(ex_index, example, label_list, max_seq_length,
                            tokenizer):
   """Converts a single `InputExample` into a single `InputFeatures`."""
-
-  if isinstance(example, PaddingInputExample):
-    return InputFeatures(
-        input_ids=[0] * max_seq_length,
-        input_mask=[0] * max_seq_length,
-        segment_ids=[0] * max_seq_length,
-        label_id=0,
-        is_real_example=False)
-
   label_map = {}
   for (i, label) in enumerate(label_list):
     label_map[label] = i
@@ -421,7 +647,7 @@ def convert_single_example(ex_index, example, label_list, max_seq_length,
   # it easier for the model to learn the concept of sequences.
   #
   # For classification tasks, the first vector (corresponding to [CLS]) is
-  # used as the "sentence vector". Note that this only makes sense because
+  # used as as the "sentence vector". Note that this only makes sense because
   # the entire model is fine-tuned.
   tokens = []
   segment_ids = []
@@ -471,8 +697,7 @@ def convert_single_example(ex_index, example, label_list, max_seq_length,
       input_ids=input_ids,
       input_mask=input_mask,
       segment_ids=segment_ids,
-      label_id=label_id,
-      is_real_example=True)
+      label_id=label_id)
   return feature
 
 
@@ -498,12 +723,9 @@ def file_based_convert_examples_to_features(
     features["input_mask"] = create_int_feature(feature.input_mask)
     features["segment_ids"] = create_int_feature(feature.segment_ids)
     features["label_ids"] = create_int_feature([feature.label_id])
-    features["is_real_example"] = create_int_feature(
-        [int(feature.is_real_example)])
 
     tf_example = tf.train.Example(features=tf.train.Features(feature=features))
     writer.write(tf_example.SerializeToString())
-  writer.close()
 
 
 def file_based_input_fn_builder(input_file, seq_length, is_training,
@@ -515,7 +737,6 @@ def file_based_input_fn_builder(input_file, seq_length, is_training,
       "input_mask": tf.FixedLenFeature([seq_length], tf.int64),
       "segment_ids": tf.FixedLenFeature([seq_length], tf.int64),
       "label_ids": tf.FixedLenFeature([], tf.int64),
-      "is_real_example": tf.FixedLenFeature([], tf.int64),
   }
 
   def _decode_record(record, name_to_features):
@@ -632,11 +853,6 @@ def model_fn_builder(bert_config, num_labels, init_checkpoint, learning_rate,
     input_mask = features["input_mask"]
     segment_ids = features["segment_ids"]
     label_ids = features["label_ids"]
-    is_real_example = None
-    if "is_real_example" in features:
-      is_real_example = tf.cast(features["is_real_example"], dtype=tf.float32)
-    else:
-      is_real_example = tf.ones(tf.shape(label_ids), dtype=tf.float32)
 
     is_training = (mode == tf.estimator.ModeKeys.TRAIN)
 
@@ -645,7 +861,7 @@ def model_fn_builder(bert_config, num_labels, init_checkpoint, learning_rate,
         num_labels, use_one_hot_embeddings)
 
     tvars = tf.trainable_variables()
-    initialized_variable_names = {}
+
     scaffold_fn = None
     if init_checkpoint:
       (assignment_map, initialized_variable_names
@@ -681,18 +897,16 @@ def model_fn_builder(bert_config, num_labels, init_checkpoint, learning_rate,
           scaffold_fn=scaffold_fn)
     elif mode == tf.estimator.ModeKeys.EVAL:
 
-      def metric_fn(per_example_loss, label_ids, logits, is_real_example):
+      def metric_fn(per_example_loss, label_ids, logits):
         predictions = tf.argmax(logits, axis=-1, output_type=tf.int32)
-        accuracy = tf.metrics.accuracy(
-            labels=label_ids, predictions=predictions, weights=is_real_example)
-        loss = tf.metrics.mean(values=per_example_loss, weights=is_real_example)
+        accuracy = tf.metrics.accuracy(label_ids, predictions)
+        loss = tf.metrics.mean(per_example_loss)
         return {
             "eval_accuracy": accuracy,
             "eval_loss": loss,
         }
 
-      eval_metrics = (metric_fn,
-                      [per_example_loss, label_ids, logits, is_real_example])
+      eval_metrics = (metric_fn, [per_example_loss, label_ids, logits])
       output_spec = tf.contrib.tpu.TPUEstimatorSpec(
           mode=mode,
           loss=total_loss,
@@ -700,9 +914,7 @@ def model_fn_builder(bert_config, num_labels, init_checkpoint, learning_rate,
           scaffold_fn=scaffold_fn)
     else:
       output_spec = tf.contrib.tpu.TPUEstimatorSpec(
-          mode=mode,
-          predictions={"probabilities": probabilities},
-          scaffold_fn=scaffold_fn)
+          mode=mode, predictions=probabilities, scaffold_fn=scaffold_fn)
     return output_spec
 
   return model_fn
@@ -787,17 +999,8 @@ def main(_):
       "cola": ColaProcessor,
       "mnli": MnliProcessor,
       "mrpc": MrpcProcessor,
-      "mnli": XnliProcessor,
-      "sst-2": ColaProcessor,
-      "qqp": MrpcProcessor,
-      "qnli": XnliProcessor,
-      "wnli": XnliProcessor,
-      "sts-b": MrpcProcessor,
-      "rte": MrpcProcessor,
+      "xnli": XnliProcessor,
   }
-
-  tokenization.validate_case_matches_checkpoint(FLAGS.do_lower_case,
-                                                FLAGS.init_checkpoint)
 
   if not FLAGS.do_train and not FLAGS.do_eval and not FLAGS.do_predict:
     raise ValueError(
@@ -887,24 +1090,12 @@ def main(_):
 
   if FLAGS.do_eval:
     eval_examples = processor.get_dev_examples(FLAGS.data_dir)
-    num_actual_eval_examples = len(eval_examples)
-    if FLAGS.use_tpu:
-      # TPU requires a fixed batch size for all batches, therefore the number
-      # of examples must be a multiple of the batch size, or else examples
-      # will get dropped. So we pad with fake examples which are ignored
-      # later on. These do NOT count towards the metric (all tf.metrics
-      # support a per-instance weight, and these get a weight of 0.0).
-      while len(eval_examples) % FLAGS.eval_batch_size != 0:
-        eval_examples.append(PaddingInputExample())
-
     eval_file = os.path.join(FLAGS.output_dir, "eval.tf_record")
     file_based_convert_examples_to_features(
         eval_examples, label_list, FLAGS.max_seq_length, tokenizer, eval_file)
 
     tf.logging.info("***** Running evaluation *****")
-    tf.logging.info("  Num examples = %d (%d actual, %d padding)",
-                    len(eval_examples), num_actual_eval_examples,
-                    len(eval_examples) - num_actual_eval_examples)
+    tf.logging.info("  Num examples = %d", len(eval_examples))
     tf.logging.info("  Batch size = %d", FLAGS.eval_batch_size)
 
     # This tells the estimator to run through the entire set.
@@ -912,8 +1103,9 @@ def main(_):
     # However, if running eval on the TPU, you will need to specify the
     # number of steps.
     if FLAGS.use_tpu:
-      assert len(eval_examples) % FLAGS.eval_batch_size == 0
-      eval_steps = int(len(eval_examples) // FLAGS.eval_batch_size)
+      # Eval will be slightly WRONG on the TPU because it will truncate
+      # the last batch.
+      eval_steps = int(len(eval_examples) / FLAGS.eval_batch_size)
 
     eval_drop_remainder = True if FLAGS.use_tpu else False
     eval_input_fn = file_based_input_fn_builder(
@@ -933,25 +1125,19 @@ def main(_):
 
   if FLAGS.do_predict:
     predict_examples = processor.get_test_examples(FLAGS.data_dir)
-    num_actual_predict_examples = len(predict_examples)
-    if FLAGS.use_tpu:
-      # TPU requires a fixed batch size for all batches, therefore the number
-      # of examples must be a multiple of the batch size, or else examples
-      # will get dropped. So we pad with fake examples which are ignored
-      # later on.
-      while len(predict_examples) % FLAGS.predict_batch_size != 0:
-        predict_examples.append(PaddingInputExample())
-
     predict_file = os.path.join(FLAGS.output_dir, "predict.tf_record")
     file_based_convert_examples_to_features(predict_examples, label_list,
                                             FLAGS.max_seq_length, tokenizer,
                                             predict_file)
 
     tf.logging.info("***** Running prediction*****")
-    tf.logging.info("  Num examples = %d (%d actual, %d padding)",
-                    len(predict_examples), num_actual_predict_examples,
-                    len(predict_examples) - num_actual_predict_examples)
+    tf.logging.info("  Num examples = %d", len(predict_examples))
     tf.logging.info("  Batch size = %d", FLAGS.predict_batch_size)
+
+    if FLAGS.use_tpu:
+      # Warning: According to tpu_estimator.py Prediction on TPU is an
+      # experimental feature and hence not supported here
+      raise ValueError("Prediction in TPU not supported")
 
     predict_drop_remainder = True if FLAGS.use_tpu else False
     predict_input_fn = file_based_input_fn_builder(
@@ -964,18 +1150,11 @@ def main(_):
 
     output_predict_file = os.path.join(FLAGS.output_dir, "test_results.tsv")
     with tf.gfile.GFile(output_predict_file, "w") as writer:
-      num_written_lines = 0
       tf.logging.info("***** Predict results *****")
-      for (i, prediction) in enumerate(result):
-        probabilities = prediction["probabilities"]
-        if i >= num_actual_predict_examples:
-          break
+      for prediction in result:
         output_line = "\t".join(
-            str(class_probability)
-            for class_probability in probabilities) + "\n"
+            str(class_probability) for class_probability in prediction) + "\n"
         writer.write(output_line)
-        num_written_lines += 1
-    assert num_written_lines == num_actual_predict_examples
 
 
 if __name__ == "__main__":
