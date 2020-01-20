@@ -262,7 +262,7 @@ def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate
             input_id[mask_ids[random_indices]] = random_ids
 
             if len(mask_ids) < max_predictions_per_seq:
-                # print("WARNING less than k")
+                print("WARNING less than k")
                 #padding if we have less than k
                 num_pad = max_predictions_per_seq - len(mask_ids)
                 mask_ids = np.pad(mask_ids, (0, num_pad), 'constant', constant_values=(0,0))
@@ -299,7 +299,7 @@ def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate
 
         logZ, log_prob = calculate_partition_table(raw_input_mask, teacher_model.get_action_probs(),
                                                        max_predictions_per_seq)
-        log_prob = tf.Print(log_prob, [log_prob], "Log prob: ")
+        # log_prob = tf.Print(log_prob, [log_prob], "Log prob: ")
         # logp = tf.reverse(log_prob, [1])
         samples, log_q = sampling_a_subset(raw_input_mask, logZ, log_prob, max_predictions_per_seq)
 
@@ -352,10 +352,10 @@ def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate
             student_per_example_loss = tf.reshape(masked_lm_example_loss, [batch_size, seq_len])
             reward = tf.reduce_mean(student_per_example_loss, 1)
             reward = tf.stop_gradient(reward)
-            # baseline = tf.reduce_mean(reward, -1)
-            # baseline = tf.Print(baseline, [baseline], "Baseline: ")
+            baseline = tf.reduce_mean(reward, -1)
+            baseline = tf.Print(baseline, [baseline], "Baseline: ")
             reward = tf.Print(reward, [reward], "Reward: ")
-            # reward = tf.abs(reward - baseline)
+            reward = tf.abs(reward - baseline)
             teacher_loss = tf.reduce_mean(- log_q * reward)
             return teacher_loss
 
@@ -489,10 +489,7 @@ def calculate_partition_table(input_mask, output_weights, max_predictions_per_se
         # mask logp
         output_weights = tf.cast(input_mask,dtype=tf.float32) * output_weights
         # normalize pi_i = pi_i / (1 - pi_i)
-        # logp = tf.log(tf.clip_by_value(output_weights,1e-20,1.0)) - tf.log(tf.clip_by_value(1 - output_weights,1e-20,1.0))
-        logp = tf.log(tf.clip_by_value(output_weights,1e-10,1.0))
-        logp = tf.reverse(logp, [1])
-        # logp = tf.log(output_weights)
+        logp = tf.log(tf.clip_by_value(output_weights,1e-20,1.0)) - tf.log(tf.clip_by_value(1 - output_weights,1e-20,1.0))
         accum_logp = tf.cumsum(logp, axis=1, reverse=True)
         # init_value = tf.ones_like(tf.squeeze(logp[:,-1]), dtype=tf.float32) * tf.log(1e-20)
 
@@ -509,12 +506,14 @@ def calculate_partition_table(input_mask, output_weights, max_predictions_per_se
             return tf.less(k, max_predictions_per_seq + 1)
 
         def dp_body(k, logZ, lastZ):
-            # case j < N-k + 1:
-            #   logZ[j,k] = log_sum(logZ[j+1,k], logp(j) + logZ[j+1,k-1])
-            # case j = N-k + 1
-            #   logZ[j,k] = accum_logp[j]
-            # case j > N-k + 1
-            #   logZ[j,k] = 0
+            '''
+            case j < N-k + 1:
+              logZ[j,k] = log_sum(logZ[j+1,k], logp(j) + logZ[j+1,k-1])
+            case j = N-k + 1
+              logZ[j,k] = accum_logp[j]
+            case j > N-k + 1
+              logZ[j,k] = 0
+            '''
 
             # shift lastZ one step
             shifted_lastZ = tf.roll(lastZ[:, :-1], shift=1, axis=1)
@@ -548,7 +547,7 @@ def sampling_a_subset(input_mask, logZ, logp, max_predictions_per_seq):
         masked_position = tf.reduce_max(tf.stack([positions, mask]), 0)
 
         index = tf.reshape(tf.cast(tf.where(tf.equal(mask,0)),dtype=tf.int32), [-1])
-        flat_offsets = index * max_predictions_per_seq
+        flat_offsets = index * (max_predictions_per_seq + 1)
         flat_positions = masked_position + flat_offsets
         flat_sequence_tensor = tf.reshape(sequence_tensor, [-1])
         output_tensor = tf.gather(flat_sequence_tensor, flat_positions)
@@ -572,9 +571,6 @@ def sampling_a_subset(input_mask, logZ, logp, max_predictions_per_seq):
         action_mask = tf.cast(tf.argmax(actions, 1), dtype=tf.int32)
         no_left_mask = tf.where(tf.greater(left,0), tf.ones_like(left, dtype=tf.int32), tf.zeros_like(left, dtype=tf.int32))
         output = action_mask * no_left_mask
-        # action_mask = tf.cast(tf.argmax(actions, 1), dtype=tf.bool)
-        # action_mask = tf.cast(tf.logical_and(in_mask_j, action_mask),dtype=tf.int32)
-        # mask = tf.where(tf.greater(left,0), action_mask, tf.zeros_like(logp_j, dtype=tf.int32))
         actions = tf.reduce_max(actions, 1)
         log_actions = tf.log(actions) * tf.cast(output, dtype=tf.float32)
         # compute log_q_j and update count and subset
@@ -593,12 +589,13 @@ def sampling_a_subset(input_mask, logZ, logp, max_predictions_per_seq):
         left = left * max_predictions_per_seq
         log_q = tf.zeros_like(count, dtype=tf.dtypes.float32)
 
-        _, subset, count, left, log_q = tf.while_loop(sampling_loop_cond, sampling_body, [tf.constant(0), subset, count, left, log_q])
+        _, subset, count, left, log_q = tf.while_loop(sampling_loop_cond, sampling_body, [tf.constant(0), subset, count, left, log_q],
+                                                      parallel_iterations=1)
 
         subset = subset.stack()  # K x b x N
         subset = tf.transpose(subset, [1, 0])
-        # partition = logZ[:,0, max_predictions_per_seq]
-        # log_q = log_q - partition
+        partition = logZ[:,0, -1]
+        log_q = log_q - partition
     return subset, log_q
 
 
