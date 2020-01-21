@@ -34,7 +34,7 @@ cd $SRC_PATH && python3 run_classifier.py \
   --data_dir=$GLUE_DIR/$TASK_NAME \
   --vocab_file=$VOCAB_FILE \
   --bert_config_file=$CONFIG_FILE \
-  --init_checkpoint=MODEL_DIR \
+  --init_checkpoint=$MODEL_DIR \
   --max_seq_length=128 \
   --train_batch_size=32 \
   --learning_rate=3e-4 \
