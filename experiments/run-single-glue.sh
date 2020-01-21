@@ -49,8 +49,32 @@ cd $SRC_PATH && python run_classifier.py \
   --task_name=$TASK_NAME \
   --do_predict=true \
   --data_dir=$GLUE_DIR/$TASK_NAME \
-  --vocab_file=$BERT_BASE_DIR/vocab.txt \
-  --bert_config_file=$BERT_BASE_DIR/bert_config.json \
+  --vocab_file=$VOCAB_FILE \
+  --bert_config_file=$CONFIG_FILE \
   --init_checkpoint=$OUTPUT \
   --max_seq_length=128 \
   --output_dir=$OUTPUT
+
+if [ $TASK_NAME == 'MNLI' ]; then
+  echo "Evaluate MNLI-mm"
+  cd $SRC_PATH && python run_classifier.py \
+  --task_name=mnli-mm \
+  --do_predict=true \
+  --data_dir=$GLUE_DIR/MNLI \
+  --vocab_file=$VOCAB_FILE \
+  --bert_config_file=$CONFIG_FILE \
+  --init_checkpoint=$OUTPUT \
+  --max_seq_length=128 \
+  --output_dir=$OUTPUT
+
+  echo "Evaluate AX"
+  cd $SRC_PATH && python run_classifier.py \
+  --task_name=ax \
+  --do_predict=true \
+  --data_dir=$GLUE_DIR/AX \
+  --vocab_file=$VOCAB_FILE \
+  --bert_config_file=$CONFIG_FILE \
+  --init_checkpoint=$OUTPUT \
+  --max_seq_length=128 \
+  --output_dir=$OUTPUT
+fi;
