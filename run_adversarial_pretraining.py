@@ -487,9 +487,10 @@ def calculate_partition_table(input_mask, output_weights, max_predictions_per_se
         initZ = initZ.write(tf.constant(0), logZ_0)
 
         # mask logp
-        output_weights = tf.cast(input_mask,dtype=tf.float32) * output_weights
+        # output_weights = tf.cast(input_mask,dtype=tf.float32) * output_weights
         # normalize pi_i = pi_i / (1 - pi_i)
-        logp = tf.log(tf.clip_by_value(output_weights,1e-20,1.0)) - tf.log(tf.clip_by_value(1 - output_weights,1e-20,1.0))
+        logp = tf.log(output_weights)
+        # logp = tf.log(tf.clip_by_value(output_weights,1e-20,1.0)) - tf.log(tf.clip_by_value(1 - output_weights,1e-20,1.0))
         accum_logp = tf.cumsum(logp, axis=1, reverse=True)
         # init_value = tf.ones_like(tf.squeeze(logp[:,-1]), dtype=tf.float32) * tf.log(1e-20)
 
@@ -498,6 +499,8 @@ def calculate_partition_table(input_mask, output_weights, max_predictions_per_se
 
         def accum_body(j, logZ_j, logb, loga):
             logb_j = tf.squeeze(logb[:, j])
+            log_one_minus_p_j = tf.log(1 - tf.exp(logb_j))
+            loga = loga + log_one_minus_p_j
             next_logZ_j = tf.math.reduce_logsumexp(tf.stack([loga, logb_j]), 0)
             logZ_j = logZ_j.write(j, next_logZ_j)
             return [tf.subtract(j, 1), logZ_j, logb, next_logZ_j]
@@ -572,7 +575,7 @@ def sampling_a_subset(input_mask, logZ, logp, max_predictions_per_seq):
         no_left_mask = tf.where(tf.greater(left,0), tf.ones_like(left, dtype=tf.int32), tf.zeros_like(left, dtype=tf.int32))
         output = action_mask * no_left_mask
         actions = tf.reduce_max(actions, 1)
-        log_actions = tf.log(actions) * tf.cast(output, dtype=tf.float32)
+        log_actions = tf.log(actions)
         # compute log_q_j and update count and subset
         count = count + output
         left = left - output
