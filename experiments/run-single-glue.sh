@@ -8,18 +8,18 @@ module load cuda/10.0
 module load cudnn/7.6.5-cuda10.1
 source $ROOT_DIR/env/bin/activate
 
-OUT_DIR=$ROOT_DIR/results
-mkdir -p $OUT_DIR
+
 index=$1
 MODEL_DIR=$2
 EXP_NAME=$3
+OUT_DIR=$4
 TASKS=( MNLI QQP QNLI "SST-2" CoLA "STS-B" MRPC RTE WNLI )
 LEARNING_RATES=( 3 3 3 3 3 10 3 10 3 )
 
 TASK_NAME=${TASKS[$index]}
 LEARNING_RATE=${LEARNING_RATES[$index]}
 MODEL_NAME="bert_model.ckpt"
-OUTPUT=$OUT_DIR/$EXP_NAME/"run-"$DATE/$TASK_NAME
+OUTPUT=$OUT_DIR/$TASK_NAME
 VOCAB_FILE=$SRC_PATH'/config/en_uncase_vocab.txt'
 CONFIG_FILE=$SRC_PATH'/config/small_bert_config.json'
 
