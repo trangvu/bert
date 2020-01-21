@@ -55,7 +55,7 @@ cd $SRC_PATH && python run_classifier.py \
   --max_seq_length=128 \
   --output_dir=$OUTPUT
 
-if [ $TASK_NAME == 'MNLI' ]; then
+if [ $TASK_NAME = 'MNLI' ]; then
   echo "Evaluate MNLI-mm"
   cd $SRC_PATH && python run_classifier.py \
   --task_name=mnli-mm \
