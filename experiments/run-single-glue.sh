@@ -34,7 +34,7 @@ cd $SRC_PATH && python3 run_classifier.py \
   --data_dir=$GLUE_DIR/$TASK_NAME \
   --vocab_file=$VOCAB_FILE \
   --bert_config_file=$CONFIG_FILE \
-  --init_checkpoint=MODEL_DIR/model.ckpt \
+  --init_checkpoint=MODEL_DIR \
   --max_seq_length=128 \
   --train_batch_size=32 \
   --learning_rate=3e-4 \
@@ -51,6 +51,6 @@ cd $SRC_PATH && python run_classifier.py \
   --data_dir=$GLUE_DIR/$TASK_NAME \
   --vocab_file=$BERT_BASE_DIR/vocab.txt \
   --bert_config_file=$BERT_BASE_DIR/bert_config.json \
-  --init_checkpoint=$OUTPUT/$MODEL_CKP \
+  --init_checkpoint=$OUTPUT \
   --max_seq_length=128 \
   --output_dir=$OUTPUT
