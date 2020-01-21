@@ -244,6 +244,7 @@ def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate
         masked_lm_ids = []
         masked_lm_positions = []
         masked_lm_weights = []
+        samples = samples * input_mask
         for input_id, sample in zip(input_ids, samples):
             reverse_mask_ids = np.flip(np.argwhere(sample == 1).flatten(),0)
             mask_ids= reverse_mask_ids[::-1]
@@ -487,7 +488,8 @@ def calculate_partition_table(input_mask, output_weights, max_predictions_per_se
         initZ = initZ.write(tf.constant(0), logZ_0)
 
         # mask logp
-        # output_weights = tf.cast(input_mask,dtype=tf.float32) * output_weights
+        output_weights = tf.cast(input_mask,dtype=tf.float32) * output_weights
+        output_weights = tf.clip_by_value(output_weights,1e-20,1.0)
         # normalize pi_i = pi_i / (1 - pi_i)
         logp = tf.log(output_weights)
         # logp = tf.log(tf.clip_by_value(output_weights,1e-20,1.0)) - tf.log(tf.clip_by_value(1 - output_weights,1e-20,1.0))
@@ -522,10 +524,10 @@ def calculate_partition_table(input_mask, output_weights, max_predictions_per_se
             shifted_lastZ = tf.roll(lastZ[:, :-1], shift=1, axis=1)
             log_yes = logp + shifted_lastZ  # b x N
             logZ_j = tf.TensorArray(tf.float32, size=seq_len + 1)
-            #minus 1 because of the last token is [SEP]
-            init_value = accum_logp[:,seq_len - k]
-            logZ_j = logZ_j.write(seq_len - k, init_value)
-            _, logZ_j, logb, loga = tf.while_loop(accum_cond, accum_body, [seq_len - k - 1, logZ_j, log_yes, init_value])
+            # minus 1 because of the last token is [SEP]
+            init_value = accum_logp[:,seq_len - k - 1]
+            logZ_j = logZ_j.write(seq_len - k - 1, init_value)
+            _, logZ_j, logb, loga = tf.while_loop(accum_cond, accum_body, [seq_len - k - 2, logZ_j, log_yes, init_value])
             logZ_j = logZ_j.stack()  # N x b
             logZ_j = tf.transpose(logZ_j, [1, 0])  # b x N
             logZ = logZ.write(k, logZ_j)
@@ -558,7 +560,7 @@ def sampling_a_subset(input_mask, logZ, logp, max_predictions_per_seq):
 
     def sampling_loop_cond(j, subset, count, left, log_q):
         # j < N and left > 0
-        # return tf.logical_and(tf.less(j,  seq_len), tf.reduce_any(tf.greater(left,0)))
+        # we want to exclude last tokens, because it's always a special token [SEP]
         return tf.less(j,  seq_len)
 
     def sampling_body(j, subset, count, left, log_q):
@@ -814,7 +816,6 @@ def _decode_record(record, name_to_features, params):
   mask = tf.zeros([seq_len], dtype=input_mask.dtype)
   input_mask = tf.where(tf.logical_not(tf.logical_or(tf.equal(input_ids, sep_id), tf.equal(input_ids, cls_id))), input_mask, mask)
   example['input_mask'] = input_mask
-
   # tf.Example only supports tf.int64, but the TPU only supports tf.int32.
   # So cast all int64 to int32.
   for name in list(example.keys()):

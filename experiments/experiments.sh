@@ -21,3 +21,8 @@
     sbatch --job-name=glue-scr-pos --time=2-00:00:00 submit-job-m3g-V100.sh evaluate_glue.sh bert-pos  /home/xvuthith/da33_scratch/trang/masked-lm/models/bert-pos-small
     sbatch --job-name=glue-scr-entropy --time=2-00:00:00 submit-job-m3g-V100.sh evaluate_glue.sh bert-entropy  /home/xvuthith/da33_scratch/trang/masked-lm/models/bert-entropy-small
     sbatch --job-name=glue-scr-adv --time=2-00:00:00 submit-job-m3g-V100.sh evaluate_glue.sh bert-adv  /home/xvuthith/da33_scratch/trang/masked-lm/models/bert-adv-small
+
+    sbatch --job-name=glue-scr-rand --time=1-00:00:00 submit-job-rqtp.sh evaluate_glue.sh bert-rand  /home/xvuthith/da33_scratch/trang/masked-lm/models/bert-rand-small
+    sbatch --job-name=glue-scr-pos --time=1-00:00:00 submit-job-rqtp.sh evaluate_glue.sh bert-pos  /home/xvuthith/da33_scratch/trang/masked-lm/models/bert-pos-small
+    sbatch --job-name=glue-scr-entropy --time=1-00:00:00 submit-job-rqtp.sh evaluate_glue.sh bert-entropy  /home/xvuthith/da33_scratch/trang/masked-lm/models/bert-entropy-small
+    sbatch --job-name=glue-scr-adv --time=1-00:00:00 submit-job-rqtp.sh evaluate_glue.sh bert-adv  /home/xvuthith/da33_scratch/trang/masked-lm/models/bert-adv-small
