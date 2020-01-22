@@ -482,7 +482,7 @@ def get_masked_lm_logits(bert_config, input_tensor, output_weights, positions,
 
 def get_entropy_output(bert_config, input_tensor, output_weights):
 
-    with tf.variable_scope("cls/predictions",reuse=tf.AUTO_REUSE):
+    with tf.variable_scope("cls/entropy//predictions",reuse=tf.AUTO_REUSE):
         # We apply one more non-linear transformation before the output layer.
         # This matrix is not used after pre-training.
         with tf.variable_scope("transform",reuse=tf.AUTO_REUSE):
