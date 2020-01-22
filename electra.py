@@ -96,7 +96,7 @@ class ElectraGeneratorModel(object):
         scope = "generator"
 
     if discriminator_scope is None:
-        scope = "bert"
+        discriminator_scope = "bert"
 
     with tf.variable_scope(discriminator_scope,reuse=tf.AUTO_REUSE):
       with tf.variable_scope("embeddings",reuse=tf.AUTO_REUSE):
@@ -122,6 +122,15 @@ class ElectraGeneratorModel(object):
             initializer_range=config.initializer_range,
             max_position_embeddings=config.max_position_embeddings,
             dropout_prob=config.hidden_dropout_prob)
+
+        if config.embedding_size != config.hidden_size:
+            self.embedding_output = tf.layers.dense(
+                self.embedding_output,
+                units=config.hidden_size,
+                activation=get_activation(config.hidden_act),
+                kernel_initializer=create_initializer(
+                    config.initializer_range))
+            self.embedding_output = layer_norm(self.embedding_output)
 
     with tf.variable_scope(scope, reuse=tf.AUTO_REUSE):
       with tf.variable_scope("encoder",reuse=tf.AUTO_REUSE):
@@ -241,6 +250,8 @@ def get_activation(activation_string):
     return gelu
   elif act == "tanh":
     return tf.tanh
+  elif act == "sigmoid":
+    return tf.sigmoid
   else:
     raise ValueError("Unsupported activation: %s" % act)
 

@@ -295,72 +295,20 @@ def model_fn_builder(discriminator_config, generator_config, lambda_value, init_
         masked_lm_weights.set_shape(raw_masked_lm_positions.get_shape())
 
 
-    def create_corrupted_x(input_ids, input_mask, masked_lm_ids, masked_lm_positions, samples):
-        print(samples)
-        print(input_ids)
-        shape = input_ids.shape
-        if mask_strategy == 'random':
-            probs = np.full(shape, 1)
-            probs = np.where(np.logical_not(np.logical_or(np.logical_or(np.equal(input_ids, sep_id), np.equal(input_ids, cls_id)), np.equal(input_ids, pad_id))), probs, 0)
-            probs = probs/ probs.sum(axis=1,keepdims=1)
-
-        elif mask_strategy == 'pos':
-            probs = np.full(shape, 1)
-            probs = np.where(np.isin(tag_ids, PREFER_TAG_IDS), probs, 5)
-            probs = np.where(np.logical_not(
-                np.logical_or(np.logical_or(np.equal(input_ids, sep_id), np.equal(input_ids, cls_id)),
-                              np.equal(input_ids, pad_id))), probs, 0)
-            probs = probs / probs.sum(axis=1, keepdims=1)
-
-
-        seq_len = np.shape(probs)[1]
-        masked_lm_ids = []
-        masked_lm_positions = []
-        masked_lm_weights = []
-        for input_id, p in zip(input_ids, probs):
-            k = np.count_nonzero(p)
-            if max_predictions_per_seq < k:
-                mask_ids = np.random.choice(seq_len, max_predictions_per_seq, replace=False, p=p)
-            else:
-                mask_ids = np.random.choice(seq_len, k, replace=False, p=p)
-            label_ids = input_id[mask_ids]
-            masked_lm_weight = [1.0] * len(mask_ids)
-            input_id[mask_ids] = mask_id
-
-            # 10% is KEEP and 10% is replaced with random words
-            if max_predictions_per_seq < k:
-                num_keep = int(0.1 * max_predictions_per_seq)
-                special_indices = np.random.choice(max_predictions_per_seq, num_keep * 2, replace=False)
-            else:
-                num_keep = int(0.1 * k)
-                special_indices = np.random.choice(k, num_keep * 2, replace=False)
-
-            keep_indices = special_indices[:num_keep]
-            random_indices = special_indices[num_keep:]
-            input_id[mask_ids[keep_indices]] = label_ids[keep_indices]
-            random_ids = np.random.choice(vocab_size - 5, num_keep) + 5
-            input_id[mask_ids[random_indices]] = random_ids
-
-            if len(mask_ids) < max_predictions_per_seq:
-                print("WARNING less than k")
-                #padding if we have less than k
-                num_pad = max_predictions_per_seq - len(mask_ids)
-                mask_ids = np.pad(mask_ids, (0, num_pad), 'constant', constant_values=(0,0))
-                label_ids = np.pad(label_ids, (0, num_pad), 'constant', constant_values=(0,0))
-                masked_lm_weight = np.pad(masked_lm_weight, (0, num_pad), constant_values=(0.0,0.0))
-            masked_lm_ids.append(label_ids)
-            masked_lm_positions.append(mask_ids)
-            masked_lm_weights.append(masked_lm_weight)
-
-        masked_lm_ids = np.asarray(masked_lm_ids)
-        masked_lm_positions = np.asarray(masked_lm_positions, dtype='int32')
-        masked_lm_weights = np.asarray(masked_lm_weights, dtype='float32')
-
-        return (input_ids, input_mask, masked_lm_ids, masked_lm_positions, masked_lm_weights, samples)
+    def create_corrupted_x(input_ids, samples, masked_lm_ids, masked_lm_positions):
+        # Generate label for discriminator: 0 is ORIGINAL, 1 is REPLACED
+        disc_label_ids = np.zeros_like(input_ids, dtype='int32')
+        for input_id, masked_lm_position, sample, disc_label_id, masked_lm_id \
+            in zip(input_ids, masked_lm_positions, samples, disc_label_ids, masked_lm_ids):
+            input_id[masked_lm_position] = sample
+            replace_ids = masked_lm_position[np.where(sample != masked_lm_id)]
+            disc_label_id[replace_ids] = 1
+        sum = np.sum(disc_label_ids, 1)
+        return (input_ids, disc_label_ids)
 
 
     # Step 2: use generator to generate corrupted x
-    generator = electra.GeneratorModel(
+    generator = electra.ElectraGeneratorModel(
         config=generator_config,
         is_training=is_training,
         input_ids=input_ids,
@@ -368,28 +316,15 @@ def model_fn_builder(discriminator_config, generator_config, lambda_value, init_
         token_type_ids=segment_ids,
         use_one_hot_embeddings=use_one_hot_embeddings)
 
-    (masked_lm_loss,
-     masked_lm_example_loss, masked_lm_log_probs, samples) = get_masked_lm_output(
+    (generator_masked_lm_loss,
+     masked_lm_example_loss, masked_lm_log_probs, samples) = get_generator_masked_lm_output(
         generator_config, generator.get_sequence_output(), generator.get_embedding_table(),
         masked_lm_positions, masked_lm_ids, masked_lm_weights)
 
-    input_ids, input_mask, masked_lm_ids, masked_lm_positions, masked_lm_weights, tag_ids = tf.py_func(create_corrupted_x,
-                                                                                                       [input_ids,
-                                                                                                        input_mask,
-                                                                                                        masked_lm_ids,
-                                                                                                        masked_lm_positions,
-                                                                                                        samples], (
-                                                                                                       tf.int32,
-                                                                                                       tf.int32,
-                                                                                                       tf.int32,
-                                                                                                       tf.int32,
-                                                                                                       tf.float32,
-                                                                                                       tf.int32))
+    input_ids, disc_label_ids = tf.py_func(create_corrupted_x,[input_ids, samples, masked_lm_ids, masked_lm_positions],
+                                           (tf.int32, tf.int32))
     input_ids.set_shape(raw_input_ids.get_shape())
-    input_mask.set_shape(raw_input_mask.get_shape())
-    masked_lm_ids.set_shape(raw_masked_lm_ids.get_shape())
-    masked_lm_positions.set_shape(raw_masked_lm_positions.get_shape())
-    masked_lm_weights.set_shape(raw_masked_lm_positions.get_shape())
+    disc_label_ids.set_shape(raw_input_ids.get_shape())
     model = modeling.BertModel(
         config=discriminator_config,
         is_training=is_training,
@@ -398,19 +333,12 @@ def model_fn_builder(discriminator_config, generator_config, lambda_value, init_
         token_type_ids=segment_ids,
         use_one_hot_embeddings=use_one_hot_embeddings)
 
-    (masked_lm_loss,
-     masked_lm_example_loss, masked_lm_log_probs, s) = get_masked_lm_output(
+    (discriminator_loss,
+     discriminator_example_loss, discriminator_log_probs) = get_discriminator_output(
         discriminator_config, model.get_sequence_output(), model.get_embedding_table(),
-        masked_lm_positions, masked_lm_ids, masked_lm_weights)
+        disc_label_ids, input_mask)
 
-
-
-
-    # (next_sentence_loss, next_sentence_example_loss,
-    #  next_sentence_log_probs) = get_next_sentence_output(
-    #      bert_config, model.get_pooled_output(), next_sentence_labels)
-
-    total_loss = masked_lm_loss
+    total_loss = discriminator_loss * lambda_value + generator_masked_lm_loss
 
     tvars = tf.trainable_variables()
 
@@ -442,7 +370,8 @@ def model_fn_builder(discriminator_config, generator_config, lambda_value, init_
       train_op = optimization.create_optimizer(
           total_loss, learning_rate, num_train_steps, num_warmup_steps, use_tpu)
 
-      logging_hook = tf.train.LoggingTensorHook({"loss": total_loss}, every_n_iter=10)
+      logging_hook = tf.train.LoggingTensorHook({"loss": total_loss, 'discriminator_loss': discriminator_loss,
+                                                 'generator_loss': generator_masked_lm_loss}, every_n_iter=10)
 
       output_spec = tf.contrib.tpu.TPUEstimatorSpec(
           mode=mode,
@@ -452,15 +381,15 @@ def model_fn_builder(discriminator_config, generator_config, lambda_value, init_
           training_hooks = [logging_hook])
     elif mode == tf.estimator.ModeKeys.EVAL:
 
-      def metric_fn(masked_lm_example_loss, masked_lm_log_probs, masked_lm_ids,
-                    masked_lm_weights, next_sentence_example_loss,
-                    next_sentence_log_probs, next_sentence_labels):
+      def metric_fn(generator_masked_lm_loss, masked_lm_log_probs, masked_lm_ids,
+                    masked_lm_weights, discriminator_example_loss,
+                    discriminator_log_probs, discriminator_labels):
         """Computes the loss and accuracy of the model."""
         masked_lm_log_probs = tf.reshape(masked_lm_log_probs,
                                          [-1, masked_lm_log_probs.shape[-1]])
         masked_lm_predictions = tf.argmax(
             masked_lm_log_probs, axis=-1, output_type=tf.int32)
-        masked_lm_example_loss = tf.reshape(masked_lm_example_loss, [-1])
+        masked_lm_example_loss = tf.reshape(generator_masked_lm_loss, [-1])
         masked_lm_ids = tf.reshape(masked_lm_ids, [-1])
         masked_lm_weights = tf.reshape(masked_lm_weights, [-1])
         masked_lm_accuracy = tf.metrics.accuracy(
@@ -470,27 +399,31 @@ def model_fn_builder(discriminator_config, generator_config, lambda_value, init_
         masked_lm_mean_loss = tf.metrics.mean(
             values=masked_lm_example_loss, weights=masked_lm_weights)
 
-        next_sentence_log_probs = tf.reshape(
-            next_sentence_log_probs, [-1, next_sentence_log_probs.shape[-1]])
-        next_sentence_predictions = tf.argmax(
-            next_sentence_log_probs, axis=-1, output_type=tf.int32)
-        next_sentence_labels = tf.reshape(next_sentence_labels, [-1])
-        next_sentence_accuracy = tf.metrics.accuracy(
-            labels=next_sentence_labels, predictions=next_sentence_predictions)
-        next_sentence_mean_loss = tf.metrics.mean(
-            values=next_sentence_example_loss)
+
+
+        disc_origin_log_probs = tf.log(1 - tf.exp(discriminator_log_probs))
+        preds = tf.transpose(tf.stack([disc_origin_log_probs, discriminator_log_probs]),[1,2,0])
+        discriminator_predictions = tf.reshape(tf.argmax(
+            preds, axis=-1, output_type=tf.int32), [-1])
+
+
+        discriminator_labels = tf.reshape(discriminator_labels, [-1])
+        discriminator_accuracy = tf.metrics.accuracy(
+            labels=discriminator_labels, predictions=discriminator_predictions)
+        discriminator_mean_loss = tf.metrics.mean(
+            values=discriminator_example_loss)
 
         return {
             "masked_lm_accuracy": masked_lm_accuracy,
             "masked_lm_loss": masked_lm_mean_loss,
-            "next_sentence_accuracy": next_sentence_accuracy,
-            "next_sentence_loss": next_sentence_mean_loss,
+            "discriminator_accuracy": discriminator_accuracy,
+            "discriminator_mean_loss": discriminator_mean_loss,
         }
 
       eval_metrics = (metric_fn, [
           masked_lm_example_loss, masked_lm_log_probs, masked_lm_ids,
-          masked_lm_weights, next_sentence_example_loss,
-          next_sentence_log_probs, next_sentence_labels
+          masked_lm_weights, discriminator_example_loss,
+          discriminator_log_probs, disc_label_ids
       ])
       output_spec = tf.contrib.tpu.TPUEstimatorSpec(
           mode=mode,
@@ -576,7 +509,7 @@ def get_entropy_output(bert_config, input_tensor, output_weights):
     return entropy
 
 
-def get_masked_lm_output(bert_config, input_tensor, output_weights, positions,
+def get_generator_masked_lm_output(bert_config, input_tensor, output_weights, positions,
                          label_ids, label_weights):
   """Get loss and log probs for the masked LM."""
   input_tensor = gather_indexes(input_tensor, positions)
@@ -587,7 +520,7 @@ def get_masked_lm_output(bert_config, input_tensor, output_weights, positions,
     with tf.variable_scope("transform", reuse=tf.AUTO_REUSE):
       input_tensor = tf.layers.dense(
           input_tensor,
-          units=bert_config.hidden_size,
+          units=bert_config.embedding_size,
           activation=modeling.get_activation(bert_config.hidden_act),
           kernel_initializer=modeling.create_initializer(
               bert_config.initializer_range))
@@ -602,6 +535,10 @@ def get_masked_lm_output(bert_config, input_tensor, output_weights, positions,
     logits = tf.matmul(input_tensor, output_weights, transpose_b=True)
     logits = tf.nn.bias_add(logits, output_bias)
     log_probs = tf.nn.log_softmax(logits, axis=-1)
+
+    samples = tf.random.categorical(log_probs, 1)
+    samples = tf.squeeze(samples)
+    samples = tf.reshape(samples, label_ids.get_shape())
 
     label_ids = tf.reshape(label_ids, [-1])
     label_weights = tf.reshape(label_weights, [-1])
@@ -618,33 +555,38 @@ def get_masked_lm_output(bert_config, input_tensor, output_weights, positions,
     denominator = tf.reduce_sum(label_weights) + 1e-5
     loss = numerator / denominator
 
-    samples = tf.random_categorical(log_probs, 1)
-
   return (loss, per_example_loss, log_probs, samples)
 
 
-def get_next_sentence_output(bert_config, input_tensor, labels):
-  """Get loss and log probs for the next sentence prediction."""
+def get_discriminator_output(bert_config, input_tensor, output_weights,
+                         label_ids, input_mask):
+  """Get loss and log probs for the masked LM."""
 
-  # Simple binary classification. Note that 0 is "next sentence" and 1 is
-  # "random sentence". This weight matrix is not used after pre-training.
-  with tf.variable_scope("cls/seq_relationship"):
-    output_weights = tf.get_variable(
-        "output_weights",
-        shape=[2, bert_config.hidden_size],
-        initializer=modeling.create_initializer(bert_config.initializer_range))
-    output_bias = tf.get_variable(
-        "output_bias", shape=[2], initializer=tf.zeros_initializer())
+  with tf.variable_scope("discriminator/predictions"):
+    # We apply one more non-linear transformation before the output layer.
+    # This matrix is not used after pre-training.
+    logits = tf.layers.dense(
+          input_tensor,
+          units=1,
+          activation=electra.get_activation('sigmoid'),
+          kernel_initializer=modeling.create_initializer(
+              bert_config.initializer_range))
+    logits = tf.squeeze(logits)
+    log_replaced_probs = tf.log(logits)
+    log_original_probs = tf.log(1 - logits)
 
-    logits = tf.matmul(input_tensor, output_weights, transpose_b=True)
-    logits = tf.nn.bias_add(logits, output_bias)
-    log_probs = tf.nn.log_softmax(logits, axis=-1)
-    labels = tf.reshape(labels, [-1])
-    one_hot_labels = tf.one_hot(labels, depth=2, dtype=tf.float32)
-    per_example_loss = -tf.reduce_sum(one_hot_labels * log_probs, axis=-1)
-    loss = tf.reduce_mean(per_example_loss)
-    return (loss, per_example_loss, log_probs)
+    replaced_id_mask = tf.cast(label_ids, dtype=tf.float32)
+    original_id_mask = 1 -  replaced_id_mask
 
+    # The `positions` tensor might be zero-padded (if the sequence is too
+    # short to have the maximum number of predictions). The `label_weights`
+    # tensor has a value of 1.0 for every real prediction and 0.0 for the
+    # padding predictions.
+    per_example_loss = -1 * (log_replaced_probs * replaced_id_mask + log_original_probs * original_id_mask)
+    per_example_loss = tf.cast(input_mask, dtype=tf.float32) * per_example_loss
+    loss = tf.reduce_sum(per_example_loss)
+
+  return (loss, per_example_loss, log_replaced_probs)
 
 def gather_indexes(sequence_tensor, positions):
   """Gathers the vectors at the specific positions over a minibatch."""
@@ -867,6 +809,7 @@ def main(_):
 
 if __name__ == "__main__":
   flags.mark_flag_as_required("input_file")
-  flags.mark_flag_as_required("bert_config_file")
+  flags.mark_flag_as_required("discriminator_config_file")
+  flags.mark_flag_as_required("generator_config_file")
   flags.mark_flag_as_required("output_dir")
   tf.app.run()
