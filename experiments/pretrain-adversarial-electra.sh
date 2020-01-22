@@ -25,7 +25,7 @@ PARAMS="$@"
 
 set -x
 
-cd $SRC_PATH && python3 run_adversarial_pretraining.py \
+cd $SRC_PATH && python3 run_adversarial_electra.py \
 --input_file=$INPUT_FILE \
 --output_dir=$OUT_DIR \
 --do_train=True \
