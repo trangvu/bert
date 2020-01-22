@@ -123,6 +123,8 @@ class ElectraGeneratorModel(object):
             max_position_embeddings=config.max_position_embeddings,
             dropout_prob=config.hidden_dropout_prob)
 
+    with tf.variable_scope(scope, reuse=tf.AUTO_REUSE):
+      with tf.variable_scope("embeddings/transform", reuse=tf.AUTO_REUSE):
         if config.embedding_size != config.hidden_size:
             self.embedding_output = tf.layers.dense(
                 self.embedding_output,

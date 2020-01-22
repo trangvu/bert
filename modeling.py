@@ -195,7 +195,7 @@ class BertModel(object):
             initializer_range=config.initializer_range,
             max_position_embeddings=config.max_position_embeddings,
             dropout_prob=config.hidden_dropout_prob)
-
+      with tf.variable_scope("embeddings/transform", reuse=tf.AUTO_REUSE):
         if config.embedding_size != config.hidden_size:
             self.embedding_output = tf.layers.dense(
                 self.embedding_output,
