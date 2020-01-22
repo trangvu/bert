@@ -443,7 +443,7 @@ def get_entropy_output(bert_config, input_tensor, output_weights):
         with tf.variable_scope("transform",reuse=tf.AUTO_REUSE):
             input_tensor = tf.layers.dense(
                 input_tensor,
-                units=bert_config.hidden_size,
+                units=bert_config.embedding_size,
                 activation=modeling.get_activation(bert_config.hidden_act),
                 kernel_initializer=modeling.create_initializer(
                     bert_config.initializer_range))
