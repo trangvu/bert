@@ -18,6 +18,7 @@ OUT_DIR="${ROOT_DIR}/models/${EXP_NAME}"
 mkdir -p $OUT_DIR
 
 CONFIG_FILE=$SRC_PATH'/config/small_bert_config.json'
+GENERATOR_CONFIG_FILE=$SRC_PATH'/config/small_generator_config.json'
 shift
 PARAMS="$@"
 
@@ -28,10 +29,11 @@ cd $SRC_PATH && python3 run_pretraining.py \
 --do_train=True \
 --do_eval=True \
 --bert_config_file=$CONFIG_FILE \
+--generator_config_file=$GENERATOR_CONFIG_FILE \
 --train_batch_size=128 \
 --max_seq_length=128 \
 --max_predictions_per_seq=20 \
---num_train_steps=81000 \
+--num_train_steps=60000 \
 --num_warmup_steps=10000 \
 --learning_rate=5e-4 \
 --vocab_file=$VOCAB_FILE \

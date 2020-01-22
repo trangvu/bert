@@ -10,7 +10,7 @@ module load cudnn/7.6.5-cuda10.1
 source $ROOT_DIR/env/bin/activate
 
 INPUT="train"
-DATASET="en-general-128"
+DATASET="wikibook-tf-128"
 VOCAB_FILE=$SRC_PATH'/config/en_uncase_vocab.txt'
 EXP_NAME=$1
 INPUT_FILE=`echo $DATA_DIR/$DATASET/train-* |  sed -r 's/[ ]+/,/g'`
@@ -33,8 +33,8 @@ cd $SRC_PATH && python3 run_adversarial_pretraining.py \
 --teacher_config_file=$TEACHER_CONFIG_FILE \
 --train_batch_size=128 \
 --max_seq_length=128 \
---max_predictions_per_seq=80 \
---num_train_steps=62500 \
+--max_predictions_per_seq=20 \
+--num_train_steps=81000 \
 --num_warmup_steps=10000 \
 --learning_rate=5e-4 \
 --vocab_file=$VOCAB_FILE \
