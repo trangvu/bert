@@ -213,7 +213,7 @@ def model_fn_builder(discriminator_config, generator_config, lambda_value, init_
             input_id[mask_ids[random_indices]] = random_ids
 
             if len(mask_ids) < max_predictions_per_seq:
-                print("WARNING less than k")
+                # print("WARNING less than k")
                 #padding if we have less than k
                 num_pad = max_predictions_per_seq - len(mask_ids)
                 mask_ids = np.pad(mask_ids, (0, num_pad), 'constant', constant_values=(0,0))
@@ -303,7 +303,6 @@ def model_fn_builder(discriminator_config, generator_config, lambda_value, init_
             input_id[masked_lm_position] = sample
             replace_ids = masked_lm_position[np.where(sample != masked_lm_id)]
             disc_label_id[replace_ids] = 1
-        sum = np.sum(disc_label_ids, 1)
         return (input_ids, disc_label_ids)
 
 

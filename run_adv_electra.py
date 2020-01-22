@@ -19,8 +19,9 @@ from __future__ import division
 from __future__ import print_function
 
 import os
-import time
 
+import electra
+import gumbel
 import modeling
 import optimization
 import tensorflow as tf
@@ -28,7 +29,6 @@ import numpy as np
 
 import teacher
 import tokenization
-import gumbel
 
 flags = tf.flags
 
@@ -36,8 +36,13 @@ FLAGS = flags.FLAGS
 
 ## Required parameters
 flags.DEFINE_string(
-    "bert_config_file", None,
-    "The config json file corresponding to the pre-trained BERT model. "
+    "discriminator_config_file", None,
+    "The config json file for discriminator. "
+    "This specifies the model architecture.")
+
+flags.DEFINE_string(
+    "generator_config_file", None,
+    "The config json file for generator. "
     "This specifies the model architecture.")
 
 flags.DEFINE_string(
@@ -77,6 +82,11 @@ flags.DEFINE_float("teacher_learning_rate", 5e-5, "The initial learning rate for
 flags.DEFINE_string(
     "init_checkpoint", None,
     "Initial checkpoint (usually from a pre-trained BERT model).")
+
+flags.DEFINE_integer(
+    "lambda_value", 50,
+    "Discriminator weight"
+    "Must match data generation.")
 
 flags.DEFINE_integer(
     "max_seq_length", 128,
@@ -137,30 +147,10 @@ flags.DEFINE_integer(
     "num_tpu_cores", 8,
     "Only used if `use_tpu` is True. Total number of TPU cores to use.")
 
-def mask_special_token(probability_matrix, labels, pad_id, cls_id, sep_id):
-    shape = labels.get_shape().as_list()
-    tf.logging.info("Shape {}".format(shape))
-    # cls_mask = tf.constant(shape, cls_id)
-    # sep_mask = tf.constant(shape, sep_id)
-    # pad_mask = tf.constant(shape, pad_id)
-    cls_indexes = tf.not_equal(labels, cls_id)  # [[2] [3] [5] [6]], shape=(4, 1)
-    sep_indexes = tf.not_equal(labels, sep_id)
-    pad_indexes = tf.not_equal(labels, pad_id)
-    mask = tf.cast(tf.logical_and(tf.logical_and(cls_indexes, sep_indexes), pad_indexes), tf.float32)
-    # a = sess.run(probability_matrix)
 
-    probability_matrix = probability_matrix * mask
-
-
-    # b = sess.run(probability_matrix)
-        # [[[1 2 3], [2 2 3], [0 0 0], [0 0 0]]
-        #  [[2 2 2], [2 2 2], [2 2 2], [0 0 0]]]))
-    return probability_matrix
-
-def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate,
+def model_fn_builder(discriminator_config, generator_config, teacher_config, lambda_value, init_checkpoint, learning_rate,
                      num_train_steps, num_warmup_steps, use_tpu,
-                     use_one_hot_embeddings, vocab_size, pad_id, cls_id, sep_id, mask_id,
-                     max_predictions_per_seq,
+                     use_one_hot_embeddings, mask_strategy, vocab_size, pad_id, cls_id, sep_id, mask_id, max_predictions_per_seq,
                      teacher_learning_rate, teacher_update_rate, teacher_rate_update_step, teacher_rate_decay):
   """Returns `model_fn` closure for TPUEstimator."""
 
@@ -186,8 +176,10 @@ def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate
 
         shape = input_ids.shape
         probs = np.full(shape, 1)
-        probs = np.where(np.logical_not(np.logical_or(np.logical_or(np.equal(input_ids, sep_id), np.equal(input_ids, cls_id)), np.equal(input_ids, pad_id))), probs, 0)
-        probs = probs/ probs.sum(axis=1,keepdims=1)
+        probs = np.where(np.logical_not(
+            np.logical_or(np.logical_or(np.equal(input_ids, sep_id), np.equal(input_ids, cls_id)),
+                          np.equal(input_ids, pad_id))), probs, 0)
+        probs = probs / probs.sum(axis=1, keepdims=1)
 
         seq_len = np.shape(probs)[1]
         masked_lm_ids = []
@@ -245,8 +237,8 @@ def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate
         masked_lm_weights = []
         samples = samples * input_mask
         for input_id, sample in zip(input_ids, samples):
-            reverse_mask_ids = np.flip(np.argwhere(sample == 1).flatten(),0)
-            mask_ids= reverse_mask_ids[::-1]
+            reverse_mask_ids = np.flip(np.argwhere(sample == 1).flatten(), 0)
+            mask_ids = reverse_mask_ids[::-1]
             label_ids = input_id[mask_ids]
             masked_lm_weight = [1.0] * len(mask_ids)
             input_id[mask_ids] = mask_id
@@ -263,11 +255,11 @@ def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate
 
             if len(mask_ids) < max_predictions_per_seq:
                 print("WARNING less than k")
-                #padding if we have less than k
+                # padding if we have less than k
                 num_pad = max_predictions_per_seq - len(mask_ids)
-                mask_ids = np.pad(mask_ids, (0, num_pad), 'constant', constant_values=(0,0))
-                label_ids = np.pad(label_ids, (0, num_pad), 'constant', constant_values=(0,0))
-                masked_lm_weight = np.pad(masked_lm_weight, (0, num_pad), constant_values=(0.0,0.0))
+                mask_ids = np.pad(mask_ids, (0, num_pad), 'constant', constant_values=(0, 0))
+                label_ids = np.pad(label_ids, (0, num_pad), 'constant', constant_values=(0, 0))
+                masked_lm_weight = np.pad(masked_lm_weight, (0, num_pad), constant_values=(0.0, 0.0))
             masked_lm_ids.append(label_ids)
             masked_lm_positions.append(mask_ids)
             masked_lm_weights.append(masked_lm_weight)
@@ -278,9 +270,11 @@ def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate
 
         return (input_ids, input_mask, masked_lm_ids, masked_lm_positions, masked_lm_weights, tag_ids)
 
+
+    #Step 1: masking
     if mode == tf.estimator.ModeKeys.TRAIN:
         ent_model = modeling.BertModel(
-            config=bert_config,
+            config=discriminator_config,
             is_training=is_training,
             input_ids=raw_input_ids,
             input_mask=raw_input_mask,
@@ -315,24 +309,51 @@ def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate
     input_mask.set_shape(raw_input_mask.get_shape())
     masked_lm_ids.set_shape(raw_masked_lm_ids.get_shape())
     masked_lm_positions.set_shape(raw_masked_lm_positions.get_shape())
-    model = modeling.BertModel(
-        config=bert_config,
+
+    def create_corrupted_x(input_ids, samples, masked_lm_ids, masked_lm_positions):
+        # Generate label for discriminator: 0 is ORIGINAL, 1 is REPLACED
+        disc_label_ids = np.zeros_like(input_ids, dtype='int32')
+        for input_id, masked_lm_position, sample, disc_label_id, masked_lm_id \
+            in zip(input_ids, masked_lm_positions, samples, disc_label_ids, masked_lm_ids):
+            input_id[masked_lm_position] = sample
+            replace_ids = masked_lm_position[np.where(sample != masked_lm_id)]
+            disc_label_id[replace_ids] = 1
+        return (input_ids, disc_label_ids)
+
+
+    # Step 2: use generator to generate corrupted x
+    generator = electra.ElectraGeneratorModel(
+        config=generator_config,
         is_training=is_training,
         input_ids=input_ids,
         input_mask=input_mask,
         token_type_ids=segment_ids,
         use_one_hot_embeddings=use_one_hot_embeddings)
 
-    (masked_lm_loss,
-     masked_lm_example_loss, masked_lm_log_probs) = get_masked_lm_output(
-         bert_config, model.get_sequence_output(), model.get_embedding_table(),
-         masked_lm_positions, masked_lm_ids, masked_lm_weights)
+    (generator_masked_lm_loss,
+     masked_lm_example_loss, masked_lm_log_probs, samples) = get_generator_masked_lm_output(
+        generator_config, generator.get_sequence_output(), generator.get_embedding_table(),
+        masked_lm_positions, masked_lm_ids, masked_lm_weights)
 
-    (next_sentence_loss, next_sentence_example_loss,
-     next_sentence_log_probs) = get_next_sentence_output(
-         bert_config, model.get_pooled_output(), next_sentence_labels)
+    input_ids, disc_label_ids = tf.py_func(create_corrupted_x,[input_ids, samples, masked_lm_ids, masked_lm_positions],
+                                           (tf.int32, tf.int32))
+    input_ids.set_shape(raw_input_ids.get_shape())
+    disc_label_ids.set_shape(raw_input_ids.get_shape())
+    model = modeling.BertModel(
+        config=discriminator_config,
+        is_training=is_training,
+        input_ids=input_ids,
+        input_mask=input_mask,
+        token_type_ids=segment_ids,
+        use_one_hot_embeddings=use_one_hot_embeddings)
 
-    total_loss = masked_lm_loss + next_sentence_loss
+    (discriminator_loss,
+     discriminator_example_loss, discriminator_log_probs) = get_discriminator_output(
+        discriminator_config, model.get_sequence_output(), model.get_embedding_table(),
+        disc_label_ids, input_mask)
+
+    total_loss = discriminator_loss * lambda_value + generator_masked_lm_loss
+
     student_loss = total_loss
     teacher_loss = None
     if mode == tf.estimator.ModeKeys.TRAIN:
@@ -393,19 +414,22 @@ def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate
     output_spec = None
     if mode == tf.estimator.ModeKeys.TRAIN:
       student_train_op = optimization.create_optimizer(
-          student_loss, learning_rate, num_train_steps, num_warmup_steps, use_tpu)
+      student_loss, learning_rate, num_train_steps, num_warmup_steps, use_tpu)
       teacher_train_op = optimization.create_optimizer(
-          teacher_loss, teacher_learning_rate, num_train_steps, num_warmup_steps, use_tpu)
+        teacher_loss, teacher_learning_rate, num_train_steps, num_warmup_steps, use_tpu)
 
       train_op = tf.cond(coin_toss < teacher_update,
-                         lambda: tf.group(student_train_op, teacher_train_op),
-                         lambda: student_train_op)
+               lambda: tf.group(student_train_op, teacher_train_op),
+               lambda: student_train_op)
 
-      logging_hook = tf.train.LoggingTensorHook({"loss": total_loss,
-                                                'teacher_loss': teacher_loss,
-                                                 'student_loss': student_loss},
-                                every_n_iter=10)
-      update_rate_hook = teacher.TeacherUpdateRateHook(teacher_update_rate, teacher_rate_update_step, teacher_rate_decay, teacher_update)
+      logging_hook = tf.train.LoggingTensorHook({"loss": total_loss, 'discriminator_loss': discriminator_loss,
+                                                 'generator_loss': generator_masked_lm_loss,
+                                                 'teacher_loss': teacher_loss,
+                                                 'student_loss': student_loss
+                                                 }, every_n_iter=10)
+
+      update_rate_hook = teacher.TeacherUpdateRateHook(teacher_update_rate, teacher_rate_update_step, teacher_rate_decay,
+                                                       teacher_update)
 
       output_spec = tf.contrib.tpu.TPUEstimatorSpec(
           mode=mode,
@@ -415,15 +439,15 @@ def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate
           training_hooks = [logging_hook, update_rate_hook])
     elif mode == tf.estimator.ModeKeys.EVAL:
 
-      def metric_fn(masked_lm_example_loss, masked_lm_log_probs, masked_lm_ids,
-                    masked_lm_weights, next_sentence_example_loss,
-                    next_sentence_log_probs, next_sentence_labels):
+      def metric_fn(generator_masked_lm_loss, masked_lm_log_probs, masked_lm_ids,
+                    masked_lm_weights, discriminator_example_loss,
+                    discriminator_log_probs, discriminator_labels):
         """Computes the loss and accuracy of the model."""
         masked_lm_log_probs = tf.reshape(masked_lm_log_probs,
                                          [-1, masked_lm_log_probs.shape[-1]])
         masked_lm_predictions = tf.argmax(
             masked_lm_log_probs, axis=-1, output_type=tf.int32)
-        masked_lm_example_loss = tf.reshape(masked_lm_example_loss, [-1])
+        masked_lm_example_loss = tf.reshape(generator_masked_lm_loss, [-1])
         masked_lm_ids = tf.reshape(masked_lm_ids, [-1])
         masked_lm_weights = tf.reshape(masked_lm_weights, [-1])
         masked_lm_accuracy = tf.metrics.accuracy(
@@ -433,27 +457,31 @@ def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate
         masked_lm_mean_loss = tf.metrics.mean(
             values=masked_lm_example_loss, weights=masked_lm_weights)
 
-        next_sentence_log_probs = tf.reshape(
-            next_sentence_log_probs, [-1, next_sentence_log_probs.shape[-1]])
-        next_sentence_predictions = tf.argmax(
-            next_sentence_log_probs, axis=-1, output_type=tf.int32)
-        next_sentence_labels = tf.reshape(next_sentence_labels, [-1])
-        next_sentence_accuracy = tf.metrics.accuracy(
-            labels=next_sentence_labels, predictions=next_sentence_predictions)
-        next_sentence_mean_loss = tf.metrics.mean(
-            values=next_sentence_example_loss)
+
+
+        disc_origin_log_probs = tf.log(1 - tf.exp(discriminator_log_probs))
+        preds = tf.transpose(tf.stack([disc_origin_log_probs, discriminator_log_probs]),[1,2,0])
+        discriminator_predictions = tf.reshape(tf.argmax(
+            preds, axis=-1, output_type=tf.int32), [-1])
+
+
+        discriminator_labels = tf.reshape(discriminator_labels, [-1])
+        discriminator_accuracy = tf.metrics.accuracy(
+            labels=discriminator_labels, predictions=discriminator_predictions)
+        discriminator_mean_loss = tf.metrics.mean(
+            values=discriminator_example_loss)
 
         return {
             "masked_lm_accuracy": masked_lm_accuracy,
             "masked_lm_loss": masked_lm_mean_loss,
-            "next_sentence_accuracy": next_sentence_accuracy,
-            "next_sentence_loss": next_sentence_mean_loss,
+            "discriminator_accuracy": discriminator_accuracy,
+            "discriminator_mean_loss": discriminator_mean_loss,
         }
 
       eval_metrics = (metric_fn, [
           masked_lm_example_loss, masked_lm_log_probs, masked_lm_ids,
-          masked_lm_weights, next_sentence_example_loss,
-          next_sentence_log_probs, next_sentence_labels
+          masked_lm_weights, discriminator_example_loss,
+          discriminator_log_probs, disc_label_ids
       ])
       output_spec = tf.contrib.tpu.TPUEstimatorSpec(
           mode=mode,
@@ -600,7 +628,7 @@ def sampling_a_subset(input_mask, logZ, logp, max_predictions_per_seq):
     return subset, log_q
 
 
-def get_masked_lm_output(bert_config, input_tensor, output_weights, positions,
+def get_masked_lm_logits(bert_config, input_tensor, output_weights, positions,
                          label_ids, label_weights):
   """Get loss and log probs for the masked LM."""
   input_tensor = gather_indexes(input_tensor, positions)
@@ -611,7 +639,7 @@ def get_masked_lm_output(bert_config, input_tensor, output_weights, positions,
     with tf.variable_scope("transform"):
       input_tensor = tf.layers.dense(
           input_tensor,
-          units=bert_config.embedding_size,
+          units=bert_config.hidden_size,
           activation=modeling.get_activation(bert_config.hidden_act),
           kernel_initializer=modeling.create_initializer(
               bert_config.initializer_range))
@@ -644,29 +672,112 @@ def get_masked_lm_output(bert_config, input_tensor, output_weights, positions,
 
   return (loss, per_example_loss, log_probs)
 
+def get_entropy_output(bert_config, input_tensor, output_weights):
 
-def get_next_sentence_output(bert_config, input_tensor, labels):
-  """Get loss and log probs for the next sentence prediction."""
+    with tf.variable_scope("cls/predictions",reuse=tf.AUTO_REUSE):
+        # We apply one more non-linear transformation before the output layer.
+        # This matrix is not used after pre-training.
+        with tf.variable_scope("transform",reuse=tf.AUTO_REUSE):
+            input_tensor = tf.layers.dense(
+                input_tensor,
+                units=bert_config.hidden_size,
+                activation=modeling.get_activation(bert_config.hidden_act),
+                kernel_initializer=modeling.create_initializer(
+                    bert_config.initializer_range))
+            input_tensor = modeling.layer_norm(input_tensor)
 
-  # Simple binary classification. Note that 0 is "next sentence" and 1 is
-  # "random sentence". This weight matrix is not used after pre-training.
-  with tf.variable_scope("cls/seq_relationship"):
-    output_weights = tf.get_variable(
-        "output_weights",
-        shape=[2, bert_config.hidden_size],
-        initializer=modeling.create_initializer(bert_config.initializer_range))
+        # The output weights are the same as the input embeddings, but there is
+        # an output-only bias for each token.
+        output_bias = tf.get_variable(
+            "output_bias",
+            shape=[bert_config.vocab_size],
+            initializer=tf.zeros_initializer())
+        logits = tf.matmul(input_tensor, output_weights, transpose_b=True)
+        logits = tf.nn.bias_add(logits, output_bias)
+        probs = tf.nn.softmax(logits, axis=-1)
+        entropy = -tf.reduce_sum(probs * tf.log(probs), [2])
+
+    return entropy
+
+
+def get_generator_masked_lm_output(bert_config, input_tensor, output_weights, positions,
+                         label_ids, label_weights):
+  """Get loss and log probs for the masked LM."""
+  input_tensor = gather_indexes(input_tensor, positions)
+
+  with tf.variable_scope("cls/predictions", reuse=tf.AUTO_REUSE):
+    # We apply one more non-linear transformation before the output layer.
+    # This matrix is not used after pre-training.
+    with tf.variable_scope("transform", reuse=tf.AUTO_REUSE):
+      input_tensor = tf.layers.dense(
+          input_tensor,
+          units=bert_config.embedding_size,
+          activation=modeling.get_activation(bert_config.hidden_act),
+          kernel_initializer=modeling.create_initializer(
+              bert_config.initializer_range))
+      input_tensor = modeling.layer_norm(input_tensor)
+
+    # The output weights are the same as the input embeddings, but there is
+    # an output-only bias for each token.
     output_bias = tf.get_variable(
-        "output_bias", shape=[2], initializer=tf.zeros_initializer())
-
+        "output_bias",
+        shape=[bert_config.vocab_size],
+        initializer=tf.zeros_initializer())
     logits = tf.matmul(input_tensor, output_weights, transpose_b=True)
     logits = tf.nn.bias_add(logits, output_bias)
     log_probs = tf.nn.log_softmax(logits, axis=-1)
-    labels = tf.reshape(labels, [-1])
-    one_hot_labels = tf.one_hot(labels, depth=2, dtype=tf.float32)
-    per_example_loss = -tf.reduce_sum(one_hot_labels * log_probs, axis=-1)
-    loss = tf.reduce_mean(per_example_loss)
-    return (loss, per_example_loss, log_probs)
 
+    samples = tf.random.categorical(log_probs, 1)
+    samples = tf.squeeze(samples)
+    samples = tf.reshape(samples, label_ids.get_shape())
+
+    label_ids = tf.reshape(label_ids, [-1])
+    label_weights = tf.reshape(label_weights, [-1])
+
+    one_hot_labels = tf.one_hot(
+        label_ids, depth=bert_config.vocab_size, dtype=tf.float32)
+
+    # The `positions` tensor might be zero-padded (if the sequence is too
+    # short to have the maximum number of predictions). The `label_weights`
+    # tensor has a value of 1.0 for every real prediction and 0.0 for the
+    # padding predictions.
+    per_example_loss = -tf.reduce_sum(log_probs * one_hot_labels, axis=[-1])
+    numerator = tf.reduce_sum(label_weights * per_example_loss)
+    denominator = tf.reduce_sum(label_weights) + 1e-5
+    loss = numerator / denominator
+
+  return (loss, per_example_loss, log_probs, samples)
+
+
+def get_discriminator_output(bert_config, input_tensor, output_weights,
+                         label_ids, input_mask):
+  """Get loss and log probs for the masked LM."""
+
+  with tf.variable_scope("discriminator/predictions"):
+    # We apply one more non-linear transformation before the output layer.
+    # This matrix is not used after pre-training.
+    logits = tf.layers.dense(
+          input_tensor,
+          units=1,
+          activation=electra.get_activation('sigmoid'),
+          kernel_initializer=modeling.create_initializer(
+              bert_config.initializer_range))
+    logits = tf.squeeze(logits)
+    log_replaced_probs = tf.log(logits)
+    log_original_probs = tf.log(1 - logits)
+
+    replaced_id_mask = tf.cast(label_ids, dtype=tf.float32)
+    original_id_mask = 1 -  replaced_id_mask
+
+    # The `positions` tensor might be zero-padded (if the sequence is too
+    # short to have the maximum number of predictions). The `label_weights`
+    # tensor has a value of 1.0 for every real prediction and 0.0 for the
+    # padding predictions.
+    per_example_loss = -1 * (log_replaced_probs * replaced_id_mask + log_original_probs * original_id_mask)
+    per_example_loss = tf.cast(input_mask, dtype=tf.float32) * per_example_loss
+    loss = tf.reduce_sum(per_example_loss)
+
+  return (loss, per_example_loss, log_replaced_probs)
 
 def gather_indexes(sequence_tensor, positions):
   """Gathers the vectors at the specific positions over a minibatch."""
@@ -748,7 +859,6 @@ def input_fn_builder(input_files,
     params['pad_id'] = pad_id
     params['cls_id'] = cls_id
     params['sep_id'] = sep_id
-    params['seq_len']= max_seq_length
     d = d.apply(
         tf.contrib.data.map_and_batch(
             lambda record: _decode_record(record, name_to_features, params),
@@ -764,15 +874,6 @@ def _decode_record(record, name_to_features, params):
   """Decodes a record to a TensorFlow example."""
   example = tf.parse_single_example(record, name_to_features)
 
-  #mask CLS, SEP
-  cls_id = params['cls_id']
-  sep_id = params['sep_id']
-  seq_len = params['seq_len']
-  input_mask = example['input_mask']
-  input_ids = example['input_ids']
-  mask = tf.zeros([seq_len], dtype=input_mask.dtype)
-  input_mask = tf.where(tf.logical_not(tf.logical_or(tf.equal(input_ids, sep_id), tf.equal(input_ids, cls_id))), input_mask, mask)
-  example['input_mask'] = input_mask
   # tf.Example only supports tf.int64, but the TPU only supports tf.int32.
   # So cast all int64 to int32.
   for name in list(example.keys()):
@@ -790,9 +891,10 @@ def main(_):
   if not FLAGS.do_train and not FLAGS.do_eval:
     raise ValueError("At least one of `do_train` or `do_eval` must be True.")
 
-  bert_config = modeling.BertConfig.from_json_file(FLAGS.bert_config_file)
+  discriminator_config = modeling.BertConfig.from_json_file(FLAGS.discriminator_config_file)
+  generator_config = modeling.BertConfig.from_json_file(FLAGS.generator_config_file)
   teacher_config = teacher.TeacherConfig.from_json_file(FLAGS.teacher_config_file)
-  vocab_size = bert_config.vocab_size
+  vocab_size = discriminator_config.vocab_size
 
   tf.gfile.MakeDirs(FLAGS.output_dir)
 
@@ -831,14 +933,17 @@ def main(_):
   mask_id = special_tokens[3]
 
   model_fn = model_fn_builder(
-      bert_config=bert_config,
+      discriminator_config=discriminator_config,
+      generator_config=generator_config,
       teacher_config=teacher_config,
+      lambda_value=FLAGS.lambda_value,
       init_checkpoint=FLAGS.init_checkpoint,
       learning_rate=FLAGS.learning_rate,
       num_train_steps=FLAGS.num_train_steps,
       num_warmup_steps=FLAGS.num_warmup_steps,
       use_tpu=FLAGS.use_tpu,
       use_one_hot_embeddings=FLAGS.use_tpu,
+      mask_strategy=FLAGS.mask_strategy,
       vocab_size=vocab_size,
       pad_id = pad_id,
       sep_id = sep_id,
@@ -903,6 +1008,7 @@ def main(_):
 
 if __name__ == "__main__":
   flags.mark_flag_as_required("input_file")
-  flags.mark_flag_as_required("bert_config_file")
+  flags.mark_flag_as_required("discriminator_config_file")
+  flags.mark_flag_as_required("generator_config_file")
   flags.mark_flag_as_required("output_dir")
   tf.app.run()

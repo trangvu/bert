@@ -23,10 +23,52 @@ import copy
 import json
 import math
 import re
+import time
+
 import numpy as np
 import six
 import tensorflow as tf
 
+
+
+class TeacherUpdateRateHook(tf.train.SessionRunHook):
+    """Logs model stats to a csv."""
+
+    def __init__(self, init_update_rate, update_rate_schedule, update_rate_decay, beta):
+        """
+        Set class variables
+        :param scope_name:
+            Used to filter for tensors which name contain that specific variable scope
+        :param path:
+            path to model dir
+        :param batch_size:
+            batch size during training
+        """
+        self.beta_value = init_update_rate
+        self.update_rate_schedule = update_rate_schedule
+        self.update_rate_decay = update_rate_decay
+        self.beta_placeholder = tf.placeholder(tf.float32, [])
+        self.beta = beta
+        self.update_op = tf.assign(beta, self.beta_placeholder)
+
+    def begin(self):
+        self._step = -1
+        self._start_time =  time.time()
+
+    def before_run(self, run_context):
+        self._step += 1
+        if self._step % self.update_rate_schedule == 0:
+            print("Update teacher learning rate")
+            print(" * Old gamma {}".format(self.beta_value))
+            self.beta_value = self.beta_value * self.update_rate_decay
+            print(" * New gamma {}".format(self.beta_value))
+            run_context.session.run(self.update_op, feed_dict={self.beta_placeholder: self.beta_value})
+        return tf.train.SessionRunArgs(self.beta)
+
+    def after_run(self, run_context, run_values):
+        if self._step % self.update_rate_schedule == 0:
+            beta = run_values.results
+            print("Gamma value after run {}".format(beta))
 
 class TeacherConfig(object):
   """Configuration for `TeacherModel`."""

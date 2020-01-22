@@ -196,6 +196,15 @@ class BertModel(object):
             max_position_embeddings=config.max_position_embeddings,
             dropout_prob=config.hidden_dropout_prob)
 
+        if config.embedding_size != config.hidden_size:
+            self.embedding_output = tf.layers.dense(
+                self.embedding_output,
+                units=config.hidden_size,
+                activation=get_activation(config.hidden_act),
+                kernel_initializer=create_initializer(
+                    config.initializer_range))
+            self.embedding_output = layer_norm(self.embedding_output)
+
       with tf.variable_scope("encoder",reuse=tf.AUTO_REUSE):
         # This converts a 2D mask of shape [batch_size, seq_length] to a 3D
         # mask of shape [batch_size, seq_length, seq_length] which is used
