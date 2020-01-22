@@ -18,11 +18,11 @@ smux new-session --partition=m3g --time=2-00:00:00 --gres=gpu:1
     sbatch --job-name=scratch-adv submit-job-rqtp.sh  scratch-adv.sh
     sbatch --job-name=scratch-adv  submit-job-dgx.sh  scratch-adv.sh
 
-    sbatch --job-name=electra-rand --time=2-00:00:00 submit-job-m3g-V100.sh  scratch-rand.sh
-    sbatch --job-name=electra-pos --time=2-00:00:00 submit-job-m3g-V100.sh  scratch-pos.sh
-    sbatch --job-name=electra-entropy --time=2-00:00:00 submit-job-m3g-V100.sh  scratch-entropy.sh
-    sbatch --job-name=electra-adv --time=2-00:00:00 submit-job-m3g-V100.sh  scratch-adv.sh
-    sbatch --job-name=electra-adv  submit-job-dgx.sh  scratch-adv.sh
+    sbatch --job-name=electra-rand --time=2-00:00:00 submit-job-m3g-V100.sh  scratch-electra-rand.sh
+    sbatch --job-name=electra-pos --time=2-00:00:00 submit-job-m3g-V100.sh  scratch-electra-pos.sh
+    sbatch --job-name=electra-entropy --time=2-00:00:00 submit-job-m3g-V100.sh  scratch-electra-entropy.sh
+    sbatch --job-name=electra-adv --time=2-00:00:00 submit-job-m3g-V100.sh  scratch-electra-adv.sh
+    sbatch --job-name=electra-adv  submit-job-dgx.sh  scratch-electra-adv.sh
 
 
 
