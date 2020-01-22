@@ -1139,8 +1139,8 @@ def main(_):
       "qnli": QnliProcessor,
       "qqp" : QqpProcessor,
       "rte" : RteProcessor,
-      "sst": SstProcessor,
-      "sts": StsbProcessor,
+      "sst-2": SstProcessor,
+      "sts-b": StsbProcessor,
       "wnli": WnliProcessor,
   }
 
@@ -1154,7 +1154,7 @@ def main(_):
     'qnli': 'QNLI',
     'qqp' : 'QQP',
     'rte' : 'RTE',
-    'sst' : 'SST-2',
+    'sst-2' : 'SST-2',
     'wnli': 'WNLI',
     'ax'  : 'AX'
   }

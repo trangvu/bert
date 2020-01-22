@@ -19,6 +19,8 @@ from __future__ import division
 from __future__ import print_function
 
 import os
+
+import electra
 import modeling
 import optimization
 import tensorflow as tf
@@ -35,8 +37,13 @@ FLAGS = flags.FLAGS
 
 ## Required parameters
 flags.DEFINE_string(
-    "bert_config_file", None,
-    "The config json file corresponding to the pre-trained BERT model. "
+    "discriminator_config_file", None,
+    "The config json file for discriminator. "
+    "This specifies the model architecture.")
+
+flags.DEFINE_string(
+    "generator_config_file", None,
+    "The config json file for generator. "
     "This specifies the model architecture.")
 
 flags.DEFINE_string(
@@ -66,6 +73,11 @@ flags.DEFINE_float("masked_lm_prob", 0.15, "Masked LM probability.")
 flags.DEFINE_string(
     "init_checkpoint", None,
     "Initial checkpoint (usually from a pre-trained BERT model).")
+
+flags.DEFINE_integer(
+    "lambda_value", 50,
+    "Discriminator weight"
+    "Must match data generation.")
 
 flags.DEFINE_integer(
     "max_seq_length", 128,
@@ -127,7 +139,7 @@ flags.DEFINE_integer(
     "Only used if `use_tpu` is True. Total number of TPU cores to use.")
 
 
-def model_fn_builder(bert_config, init_checkpoint, learning_rate,
+def model_fn_builder(discriminator_config, generator_config, lambda_value, init_checkpoint, learning_rate,
                      num_train_steps, num_warmup_steps, use_tpu,
                      use_one_hot_embeddings, mask_strategy, vocab_size, pad_id, cls_id, sep_id, mask_id, max_predictions_per_seq):
   """Returns `model_fn` closure for TPUEstimator."""
@@ -254,14 +266,14 @@ def model_fn_builder(bert_config, init_checkpoint, learning_rate,
 
     if mask_strategy == 'entropy':
         ent_model = modeling.BertModel(
-            config=bert_config,
+            config=discriminator_config,
             is_training=is_training,
             input_ids=raw_input_ids,
             input_mask=raw_input_mask,
             token_type_ids=segment_ids,
             use_one_hot_embeddings=use_one_hot_embeddings)
         masked_lm_log_probs = get_entropy_output(
-        bert_config, ent_model.get_sequence_output(), ent_model.get_embedding_table())
+        discriminator_config, ent_model.get_sequence_output(), ent_model.get_embedding_table())
         input_ids, input_mask, masked_lm_ids, masked_lm_positions, masked_lm_weights = tf.py_func(
             apply_entropy_masking,
             [raw_input_ids, raw_input_mask, raw_masked_lm_ids, raw_masked_lm_positions, masked_lm_log_probs],
@@ -272,6 +284,8 @@ def model_fn_builder(bert_config, init_checkpoint, learning_rate,
         masked_lm_positions.set_shape(raw_masked_lm_positions.get_shape())
         masked_lm_weights.set_shape(raw_masked_lm_positions.get_shape())
     else:
+
+        # Step 1: create x_masked to be consumed by the generator
         input_ids, input_mask, masked_lm_ids, masked_lm_positions, masked_lm_weights, tag_ids = tf.py_func(apply_masking,
                     [raw_input_ids, raw_input_mask, raw_masked_lm_ids, raw_masked_lm_positions, raw_tag_ids], (tf.int32,tf.int32,tf.int32,tf.int32, tf.float32,tf.int32))
         input_ids.set_shape(raw_input_ids.get_shape())
@@ -280,8 +294,74 @@ def model_fn_builder(bert_config, init_checkpoint, learning_rate,
         masked_lm_positions.set_shape(raw_masked_lm_positions.get_shape())
         masked_lm_weights.set_shape(raw_masked_lm_positions.get_shape())
 
-    model = modeling.BertModel(
-        config=bert_config,
+
+    def create_corrupted_x(input_ids, input_mask, masked_lm_ids, masked_lm_positions, samples):
+        print(samples)
+        print(input_ids)
+        shape = input_ids.shape
+        if mask_strategy == 'random':
+            probs = np.full(shape, 1)
+            probs = np.where(np.logical_not(np.logical_or(np.logical_or(np.equal(input_ids, sep_id), np.equal(input_ids, cls_id)), np.equal(input_ids, pad_id))), probs, 0)
+            probs = probs/ probs.sum(axis=1,keepdims=1)
+
+        elif mask_strategy == 'pos':
+            probs = np.full(shape, 1)
+            probs = np.where(np.isin(tag_ids, PREFER_TAG_IDS), probs, 5)
+            probs = np.where(np.logical_not(
+                np.logical_or(np.logical_or(np.equal(input_ids, sep_id), np.equal(input_ids, cls_id)),
+                              np.equal(input_ids, pad_id))), probs, 0)
+            probs = probs / probs.sum(axis=1, keepdims=1)
+
+
+        seq_len = np.shape(probs)[1]
+        masked_lm_ids = []
+        masked_lm_positions = []
+        masked_lm_weights = []
+        for input_id, p in zip(input_ids, probs):
+            k = np.count_nonzero(p)
+            if max_predictions_per_seq < k:
+                mask_ids = np.random.choice(seq_len, max_predictions_per_seq, replace=False, p=p)
+            else:
+                mask_ids = np.random.choice(seq_len, k, replace=False, p=p)
+            label_ids = input_id[mask_ids]
+            masked_lm_weight = [1.0] * len(mask_ids)
+            input_id[mask_ids] = mask_id
+
+            # 10% is KEEP and 10% is replaced with random words
+            if max_predictions_per_seq < k:
+                num_keep = int(0.1 * max_predictions_per_seq)
+                special_indices = np.random.choice(max_predictions_per_seq, num_keep * 2, replace=False)
+            else:
+                num_keep = int(0.1 * k)
+                special_indices = np.random.choice(k, num_keep * 2, replace=False)
+
+            keep_indices = special_indices[:num_keep]
+            random_indices = special_indices[num_keep:]
+            input_id[mask_ids[keep_indices]] = label_ids[keep_indices]
+            random_ids = np.random.choice(vocab_size - 5, num_keep) + 5
+            input_id[mask_ids[random_indices]] = random_ids
+
+            if len(mask_ids) < max_predictions_per_seq:
+                print("WARNING less than k")
+                #padding if we have less than k
+                num_pad = max_predictions_per_seq - len(mask_ids)
+                mask_ids = np.pad(mask_ids, (0, num_pad), 'constant', constant_values=(0,0))
+                label_ids = np.pad(label_ids, (0, num_pad), 'constant', constant_values=(0,0))
+                masked_lm_weight = np.pad(masked_lm_weight, (0, num_pad), constant_values=(0.0,0.0))
+            masked_lm_ids.append(label_ids)
+            masked_lm_positions.append(mask_ids)
+            masked_lm_weights.append(masked_lm_weight)
+
+        masked_lm_ids = np.asarray(masked_lm_ids)
+        masked_lm_positions = np.asarray(masked_lm_positions, dtype='int32')
+        masked_lm_weights = np.asarray(masked_lm_weights, dtype='float32')
+
+        return (input_ids, input_mask, masked_lm_ids, masked_lm_positions, masked_lm_weights, samples)
+
+
+    # Step 2: use generator to generate corrupted x
+    generator = electra.GeneratorModel(
+        config=generator_config,
         is_training=is_training,
         input_ids=input_ids,
         input_mask=input_mask,
@@ -289,15 +369,48 @@ def model_fn_builder(bert_config, init_checkpoint, learning_rate,
         use_one_hot_embeddings=use_one_hot_embeddings)
 
     (masked_lm_loss,
-     masked_lm_example_loss, masked_lm_log_probs) = get_masked_lm_output(
-         bert_config, model.get_sequence_output(), model.get_embedding_table(),
-         masked_lm_positions, masked_lm_ids, masked_lm_weights)
+     masked_lm_example_loss, masked_lm_log_probs, samples) = get_masked_lm_output(
+        generator_config, generator.get_sequence_output(), generator.get_embedding_table(),
+        masked_lm_positions, masked_lm_ids, masked_lm_weights)
 
-    (next_sentence_loss, next_sentence_example_loss,
-     next_sentence_log_probs) = get_next_sentence_output(
-         bert_config, model.get_pooled_output(), next_sentence_labels)
+    input_ids, input_mask, masked_lm_ids, masked_lm_positions, masked_lm_weights, tag_ids = tf.py_func(create_corrupted_x,
+                                                                                                       [input_ids,
+                                                                                                        input_mask,
+                                                                                                        masked_lm_ids,
+                                                                                                        masked_lm_positions,
+                                                                                                        samples], (
+                                                                                                       tf.int32,
+                                                                                                       tf.int32,
+                                                                                                       tf.int32,
+                                                                                                       tf.int32,
+                                                                                                       tf.float32,
+                                                                                                       tf.int32))
+    input_ids.set_shape(raw_input_ids.get_shape())
+    input_mask.set_shape(raw_input_mask.get_shape())
+    masked_lm_ids.set_shape(raw_masked_lm_ids.get_shape())
+    masked_lm_positions.set_shape(raw_masked_lm_positions.get_shape())
+    masked_lm_weights.set_shape(raw_masked_lm_positions.get_shape())
+    model = modeling.BertModel(
+        config=discriminator_config,
+        is_training=is_training,
+        input_ids=input_ids,
+        input_mask=input_mask,
+        token_type_ids=segment_ids,
+        use_one_hot_embeddings=use_one_hot_embeddings)
 
-    total_loss = masked_lm_loss + next_sentence_loss
+    (masked_lm_loss,
+     masked_lm_example_loss, masked_lm_log_probs, s) = get_masked_lm_output(
+        discriminator_config, model.get_sequence_output(), model.get_embedding_table(),
+        masked_lm_positions, masked_lm_ids, masked_lm_weights)
+
+
+
+
+    # (next_sentence_loss, next_sentence_example_loss,
+    #  next_sentence_log_probs) = get_next_sentence_output(
+    #      bert_config, model.get_pooled_output(), next_sentence_labels)
+
+    total_loss = masked_lm_loss
 
     tvars = tf.trainable_variables()
 
@@ -505,7 +618,9 @@ def get_masked_lm_output(bert_config, input_tensor, output_weights, positions,
     denominator = tf.reduce_sum(label_weights) + 1e-5
     loss = numerator / denominator
 
-  return (loss, per_example_loss, log_probs)
+    samples = tf.random_categorical(log_probs, 1)
+
+  return (loss, per_example_loss, log_probs, samples)
 
 
 def get_next_sentence_output(bert_config, input_tensor, labels):
@@ -643,8 +758,9 @@ def main(_):
   if not FLAGS.do_train and not FLAGS.do_eval:
     raise ValueError("At least one of `do_train` or `do_eval` must be True.")
 
-  bert_config = modeling.BertConfig.from_json_file(FLAGS.bert_config_file)
-  vocab_size = bert_config.vocab_size
+  discriminator_config = modeling.BertConfig.from_json_file(FLAGS.discriminator_config_file)
+  generator_config = modeling.BertConfig.from_json_file(FLAGS.generator_config_file)
+  vocab_size = discriminator_config.vocab_size
 
   tf.gfile.MakeDirs(FLAGS.output_dir)
 
@@ -681,7 +797,9 @@ def main(_):
   mask_id = special_tokens[3]
 
   model_fn = model_fn_builder(
-      bert_config=bert_config,
+      discriminator_config=discriminator_config,
+      generator_config=generator_config,
+      lambda_value=FLAGS.lambda_value,
       init_checkpoint=FLAGS.init_checkpoint,
       learning_rate=FLAGS.learning_rate,
       num_train_steps=FLAGS.num_train_steps,

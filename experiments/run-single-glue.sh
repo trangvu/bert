@@ -25,35 +25,65 @@ CONFIG_FILE=$SRC_PATH'/config/small_bert_config.json'
 
 
 set -x
+if [ $TASK_NAME = 'STS-B' ]; then
+    echo "Train classifier "TASK_NAME" with BERT base model "
+    cd $SRC_PATH && python3 run_regression.py \
+      --task_name=$TASK_NAME \
+      --do_train=true \
+      --do_eval=true \
+      --data_dir=$GLUE_DIR/$TASK_NAME \
+      --vocab_file=$VOCAB_FILE \
+      --bert_config_file=$CONFIG_FILE \
+      --init_checkpoint=$MODEL_DIR \
+      --max_seq_length=128 \
+      --train_batch_size=32 \
+      --learning_rate=3e-4 \
+      --num_train_epochs=$LEARNING_RATE \
+      --output_dir=$OUTPUT
 
-echo "Train classifier "TASK_NAME" with BERT base model "
-cd $SRC_PATH && python3 run_classifier.py \
-  --task_name=$TASK_NAME \
-  --do_train=true \
-  --do_eval=true \
-  --data_dir=$GLUE_DIR/$TASK_NAME \
-  --vocab_file=$VOCAB_FILE \
-  --bert_config_file=$CONFIG_FILE \
-  --init_checkpoint=$MODEL_DIR \
-  --max_seq_length=128 \
-  --train_batch_size=32 \
-  --learning_rate=3e-4 \
-  --num_train_epochs=$LEARNING_RATE \
-  --output_dir=$OUTPUT
+
+    echo "Evaluate classifier "$EXP_NAME
+    MODEL_CKP=`cat $OUTPUT/checkpoint | grep "^model_checkpoint_path" | cut -d' ' -f2  | tr -d '"'`
+
+    cd $SRC_PATH && python run_regression.py \
+      --task_name=$TASK_NAME \
+      --do_predict=true \
+      --data_dir=$GLUE_DIR/$TASK_NAME \
+      --vocab_file=$VOCAB_FILE \
+      --bert_config_file=$CONFIG_FILE \
+      --init_checkpoint=$OUTPUT \
+      --max_seq_length=128 \
+      --output_dir=$OUTPUT
+else
+    echo "Train classifier "TASK_NAME" with BERT base model "
+    cd $SRC_PATH && python3 run_classifier.py \
+      --task_name=$TASK_NAME \
+      --do_train=true \
+      --do_eval=true \
+      --data_dir=$GLUE_DIR/$TASK_NAME \
+      --vocab_file=$VOCAB_FILE \
+      --bert_config_file=$CONFIG_FILE \
+      --init_checkpoint=$MODEL_DIR \
+      --max_seq_length=128 \
+      --train_batch_size=32 \
+      --learning_rate=3e-4 \
+      --num_train_epochs=$LEARNING_RATE \
+      --output_dir=$OUTPUT
 
 
-echo "Evaluate classifier "$EXP_NAME
-MODEL_CKP=`cat $OUTPUT/checkpoint | grep "^model_checkpoint_path" | cut -d' ' -f2  | tr -d '"'`
+    echo "Evaluate classifier "$EXP_NAME
+    MODEL_CKP=`cat $OUTPUT/checkpoint | grep "^model_checkpoint_path" | cut -d' ' -f2  | tr -d '"'`
 
-cd $SRC_PATH && python run_classifier.py \
-  --task_name=$TASK_NAME \
-  --do_predict=true \
-  --data_dir=$GLUE_DIR/$TASK_NAME \
-  --vocab_file=$VOCAB_FILE \
-  --bert_config_file=$CONFIG_FILE \
-  --init_checkpoint=$OUTPUT \
-  --max_seq_length=128 \
-  --output_dir=$OUTPUT
+    cd $SRC_PATH && python run_classifier.py \
+      --task_name=$TASK_NAME \
+      --do_predict=true \
+      --data_dir=$GLUE_DIR/$TASK_NAME \
+      --vocab_file=$VOCAB_FILE \
+      --bert_config_file=$CONFIG_FILE \
+      --init_checkpoint=$OUTPUT \
+      --max_seq_length=128 \
+      --output_dir=$OUTPUT
+fi
 
 if [ $TASK_NAME = 'MNLI' ]; then
   echo "Evaluate MNLI-mm"

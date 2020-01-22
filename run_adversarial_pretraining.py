@@ -594,8 +594,7 @@ def sampling_a_subset(input_mask, logZ, logp, max_predictions_per_seq):
         left = left * max_predictions_per_seq
         log_q = tf.zeros_like(count, dtype=tf.dtypes.float32)
 
-        _, subset, count, left, log_q = tf.while_loop(sampling_loop_cond, sampling_body, [tf.constant(0), subset, count, left, log_q],
-                                                      parallel_iterations=1)
+        _, subset, count, left, log_q = tf.while_loop(sampling_loop_cond, sampling_body, [tf.constant(0), subset, count, left, log_q])
 
         subset = subset.stack()  # K x b x N
         subset = tf.transpose(subset, [1, 0])
