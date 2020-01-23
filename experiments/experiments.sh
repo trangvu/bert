@@ -50,9 +50,10 @@ smux new-session --partition=m3g --time=2-00:00:00 --gres=gpu:1
     sbatch --job-name=glue-bert-pos --time=5:00:00 submit-job-m3g-V100.sh evaluate_glue.sh bert-pos-small0122  /scratch/da33/trang/masked-lm/models/bert-pos-small0122
     sbatch --job-name=glue-bert-rand --time=5:00:00 submit-job-m3g-V100.sh evaluate_glue.sh bert-rand-small0122  /scratch/da33/trang/masked-lm/models/bert-rand-small0122
 
-    sbatch --job-name=glue-electra-rand --time=5:00:00 submit-job-rqtp.sh evaluate_glue.sh electra-rand-small  /scratch/da33/trang/masked-lm/models/electra-rand-small
+    sbatch --job-name=glue-electra-rand --time=5:00:00 --mem-per-cpu=50000 submit-job-m3g-V100.sh evaluate_glue.sh electra-rand-small2301  /scratch/da33/trang/masked-lm/models/electra-rand-small2301
     sbatch --job-name=glue-electra-pos --time=5:00:00 submit-job-m3g-V100.sh evaluate_glue.sh electra-pos-small  /scratch/da33/trang/masked-lm/models/electra-pos-small
 
-    sbatch --job-name=glue-bert-rand --time=5:00:00 submit-job-rqtp.sh evaluate_glue.sh bert-rand-small2201  /scratch/da33/trang/masked-lm/models/bert-rand-small2201
+    sbatch --job-name=glue-bert-rand --time=5:00:00 --mem-per-cpu=50000 submit-job-m3g-V100.sh evaluate_glue.sh bert-rand-small2301  /scratch/da33/trang/masked-lm/models/bert-rand-small2301
+
     sbatch --job-name=glue-bert-pos --time=5:00:00 submit-job-m3g-V100.sh evaluate_glue.sh bert-rand-small2201  /scratch/da33/trang/masked-lm/models/bert-rand-small2201
 

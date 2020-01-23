@@ -10,7 +10,7 @@ def gumbel_softmax_sample(logits, temperature):
   y = logits + sample_gumbel(tf.shape(logits))
   return tf.nn.softmax( y / temperature)
 
-def gumbel_softmax(logits, temperature=1, hard=False):
+def gumbel_softmax(logits, temperature=0.5, hard=False):
   """Sample from the Gumbel-Softmax distribution and optionally discretize.
   Args:
     logits: [batch_size, n_class] unnormalized log-probs
