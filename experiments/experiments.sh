@@ -42,3 +42,17 @@ smux new-session --partition=m3g --time=2-00:00:00 --gres=gpu:1
     sbatch --job-name=glue-scr-pos --time=1-00:00:00 submit-job-rqtp.sh evaluate_glue.sh bert-pos  /home/xvuthith/da33_scratch/trang/masked-lm/models/bert-pos-small
     sbatch --job-name=glue-scr-entropy --time=1-00:00:00 submit-job-rqtp.sh evaluate_glue.sh bert-entropy  /home/xvuthith/da33_scratch/trang/masked-lm/models/bert-entropy-small
     sbatch --job-name=glue-scr-adv --time=1-00:00:00 submit-job-rqtp.sh evaluate_glue.sh bert-adv  /home/xvuthith/da33_scratch/trang/masked-lm/models/bert-adv-small
+
+
+    sbatch --job-name=glue-electra-entropy --time=5:00:00 submit-job-rqtp.sh evaluate_glue.sh electra-entropy-small  /home/xvuthith/da33_scratch/trang/masked-lm/models/electra-entropy-small
+    sbatch --job-name=glue-bert-entropy --time=5:00:00 submit-job-rqtp.sh evaluate_glue.sh bert-entropy-small2201  /home/xvuthith/da33_scratch/trang/masked-lm/models/bert-entropy-small2201
+    sbatch --job-name=glue-bert-adv --time=5:00:00 submit-job-rqtp.sh evaluate_glue.sh bert-adv-small  /scratch/da33/trang/masked-lm/models/bert-adv-small
+    sbatch --job-name=glue-bert-pos --time=5:00:00 submit-job-m3g-V100.sh evaluate_glue.sh bert-pos-small0122  /scratch/da33/trang/masked-lm/models/bert-pos-small0122
+    sbatch --job-name=glue-bert-rand --time=5:00:00 submit-job-m3g-V100.sh evaluate_glue.sh bert-rand-small0122  /scratch/da33/trang/masked-lm/models/bert-rand-small0122
+
+    sbatch --job-name=glue-electra-rand --time=5:00:00 submit-job-rqtp.sh evaluate_glue.sh electra-rand-small  /scratch/da33/trang/masked-lm/models/electra-rand-small
+    sbatch --job-name=glue-electra-pos --time=5:00:00 submit-job-m3g-V100.sh evaluate_glue.sh electra-pos-small  /scratch/da33/trang/masked-lm/models/electra-pos-small
+
+    sbatch --job-name=glue-bert-rand --time=5:00:00 submit-job-rqtp.sh evaluate_glue.sh bert-rand-small2201  /scratch/da33/trang/masked-lm/models/bert-rand-small2201
+    sbatch --job-name=glue-bert-pos --time=5:00:00 submit-job-m3g-V100.sh evaluate_glue.sh bert-rand-small2201  /scratch/da33/trang/masked-lm/models/bert-rand-small2201
+

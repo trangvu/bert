@@ -246,9 +246,12 @@ class StsProcessor(DataProcessor):
             if i == 0:
                 continue
             guid = "%s-%s" % (set_type, i)
-            text_a = tokenization.convert_to_unicode(line[5])
-            text_b = tokenization.convert_to_unicode(line[6])
-            label = tokenization.convert_to_unicode(line[4])
+            text_a = tokenization.convert_to_unicode(line[7])
+            text_b = tokenization.convert_to_unicode(line[8])
+            if set_type == "test":
+                label = "-1"
+            else:
+                label = tokenization.convert_to_unicode(line[-1])
             examples.append(
                 InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label))
         return examples

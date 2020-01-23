@@ -39,6 +39,7 @@ if [ $TASK_NAME = 'STS-B' ]; then
       --train_batch_size=32 \
       --learning_rate=3e-4 \
       --num_train_epochs=$LEARNING_RATE \
+      --use_sigmoid_act \
       --output_dir=$OUTPUT
 
 
@@ -53,6 +54,7 @@ if [ $TASK_NAME = 'STS-B' ]; then
       --bert_config_file=$CONFIG_FILE \
       --init_checkpoint=$OUTPUT \
       --max_seq_length=128 \
+      --use_sigmoid_act \
       --output_dir=$OUTPUT
 else
     echo "Train classifier "TASK_NAME" with BERT base model "
