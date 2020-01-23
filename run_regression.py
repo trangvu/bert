@@ -71,7 +71,7 @@ flags.DEFINE_bool("do_train", False, "Whether to run training.")
 
 flags.DEFINE_bool("do_eval", False, "Whether to run eval on the dev set.")
 
-flags.DEFINE_bool("do_test", False, "Whether to run test on the test set.")  # ADDED
+flags.DEFINE_bool("do_prediction", False, "Whether to run test on the test set.")  # ADDED
 
 flags.DEFINE_bool("benchmark", False, "Whether to run a quick benchmark on prediction or not.")  # ADDED
 
@@ -590,7 +590,7 @@ def main(_):
         'sts-b': "STS-B"
     }
 
-    if not FLAGS.do_train and not FLAGS.do_eval and not FLAGS.do_test:
+    if not FLAGS.do_train and not FLAGS.do_eval and not FLAGS.do_prediction:
         raise ValueError("At least one of `do_train` or `do_eval` must be True.")
 
     bert_config = modeling.BertConfig.from_json_file(FLAGS.bert_config_file)
@@ -710,7 +710,7 @@ def main(_):
                 tf.logging.info("  %s = %s", key, str(result[key]))
                 writer.write("%s = %s\n" % (key, str(result[key])))
 
-    if FLAGS.do_test:
+    if FLAGS.do_prediction:
         test_examples = processor.get_test_examples(FLAGS.data_dir)
         test_features = convert_examples_to_features(
             test_examples, label_list, FLAGS.max_seq_length, tokenizer)
