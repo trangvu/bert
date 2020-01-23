@@ -39,9 +39,10 @@ if [ $TASK_NAME = 'STS-B' ]; then
       --init_checkpoint=$MODEL_DIR \
       --max_seq_length=128 \
       --train_batch_size=32 \
-      --learning_rate=3e-4 \
+      --learning_rate=1e-5 \
       --num_train_epochs=$LEARNING_RATE \
       --use_sigmoid_act=False \
+      --do_lower_case=true \
       --output_dir=$OUTPUT
 
 #    echo "Evaluate classifier "$EXP_NAME
@@ -70,7 +71,8 @@ else
       --init_checkpoint=$MODEL_DIR \
       --max_seq_length=128 \
       --train_batch_size=32 \
-      --learning_rate=3e-4 \
+      --learning_rate=1e-5 \
+      --do_lower_case=true \
       --num_train_epochs=$LEARNING_RATE \
       --output_dir=$OUTPUT
 
@@ -99,6 +101,7 @@ if [ $TASK_NAME = 'MNLI' ]; then
   --bert_config_file=$CONFIG_FILE \
   --init_checkpoint=$OUTPUT \
   --max_seq_length=128 \
+  --do_lower_case=true \
   --output_dir=$OUTPUT
 
   echo "Evaluate AX"
@@ -110,5 +113,6 @@ if [ $TASK_NAME = 'MNLI' ]; then
   --bert_config_file=$CONFIG_FILE \
   --init_checkpoint=$OUTPUT \
   --max_seq_length=128 \
+  --do_lower_case=true \
   --output_dir=$OUTPUT
 fi;
