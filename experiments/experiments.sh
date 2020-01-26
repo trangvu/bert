@@ -31,7 +31,15 @@ smux new-session --partition=m3g --time=2-00:00:00 --gres=gpu:1
     sbatch --job-name=electra-adv  submit-job-dgx.sh  scratch-electra-adv.sh
 
     ## Small epochs
-    sbatch --job-name=ori-adv- --time=2-00:00:00 submit-job-m3g-V100.sh scratch-adv.sh
+    sbatch --job-name=ori-adv-epochs --time=2-00:00:00 submit-job-m3g-V100.sh scratch-adv.sh
+    sbatch --job-name=electra-adv-epochs --time=2-00:00:00 submit-job-m3g-V100.sh scratch-electra-adv.sh
+    sbatch --job-name=ori-rand-epochs submit-job-rqtp.sh  scratch-rand.sh
+    sbatch --job-name=ori-pos-epochs submit-job-rqtp.sh  scratch-pos.sh
+    sbatch --job-name=ori-entropy-epochs submit-job-rqtp.sh  scratch-entropy.sh
+
+    sbatch --job-name=electra-rand-epochs submit-job-rqtp.sh  scratch-electra-rand.sh
+    sbatch --job-name=electra-pos-epochs submit-job-rqtp.sh  scratch-electra-pos.sh
+    sbatch --job-name=electra-entropy-epochs submit-job-rqtp.sh  scratch-electra-entropy.sh
 
 
 ### Evaluate
