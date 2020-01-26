@@ -68,7 +68,7 @@ flags.DEFINE_bool(
 flags.DEFINE_float("masked_lm_prob", 0.15, "Masked LM probability.")
 
 ## Teacher parameters
-flags.DEFINE_float("teacher_update_rate", 0.9, "How often we update the teacher")
+flags.DEFINE_float("teacher_update_rate", 0.33, "How often we update the teacher")
 flags.DEFINE_integer("teacher_rate_update_step", 1000, "How often we update teacher learning rate")
 flags.DEFINE_float("teacher_rate_decay", 0.963, "Decay rate for teacher update rate")
 flags.DEFINE_float("teacher_learning_rate", 5e-5, "The initial learning rate for Adam teacher.")
@@ -234,7 +234,7 @@ def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate
 
         return (input_ids, input_mask, masked_lm_ids, masked_lm_positions, masked_lm_weights, tag_ids)
 
-    def apply_teacher_masking(input_ids, input_mask, samples, logq, tag_ids):
+    def apply_teacher_masking(input_ids, input_mask, samples, tag_ids):
         # print(samples)
         # print(samples.shape)
         # print(logq)
@@ -245,8 +245,10 @@ def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate
         masked_lm_weights = []
         samples = samples * input_mask
         for input_id, sample in zip(input_ids, samples):
-            reverse_mask_ids = np.flip(np.argwhere(sample == 1).flatten(),0)
-            mask_ids= reverse_mask_ids[::-1]
+            mask_ids = np.argwhere(sample == 1).flatten()
+            # print(mask_ids)
+            if len(mask_ids > max_predictions_per_seq):
+                mask_ids = mask_ids[:max_predictions_per_seq]
             label_ids = input_id[mask_ids]
             masked_lm_weight = [1.0] * len(mask_ids)
             input_id[mask_ids] = mask_id
@@ -278,7 +280,12 @@ def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate
 
         return (input_ids, input_mask, masked_lm_ids, masked_lm_positions, masked_lm_weights, tag_ids)
 
+
+
     if mode == tf.estimator.ModeKeys.TRAIN:
+        teacher_update = tf.Variable(0.5)
+        coin_toss = tf.random.uniform([])
+
         ent_model = modeling.BertModel(
             config=bert_config,
             is_training=is_training,
@@ -297,13 +304,13 @@ def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate
             input_mask=raw_input_mask
         )
 
-        logZ, log_prob = calculate_partition_table(raw_input_mask, teacher_model.get_action_probs(),
-                                                       max_predictions_per_seq)
-        samples, log_q = sampling_a_subset(raw_input_mask, logZ, log_prob, max_predictions_per_seq)
+        samples, log_q = tf.cond(coin_toss < teacher_update,
+                                 lambda : sample_masking_subset(raw_input_mask, teacher_model.get_action_probs(), max_predictions_per_seq),
+                                 lambda: argmax_subset(raw_input_mask, teacher_model.get_action_probs(), max_predictions_per_seq))
 
         input_ids, input_mask, masked_lm_ids, masked_lm_positions, masked_lm_weights, tag_ids = tf.py_func(
             apply_teacher_masking,
-            [raw_input_ids, raw_input_mask, samples, log_q, raw_tag_ids],
+            [raw_input_ids, raw_input_mask, samples, raw_tag_ids],
             (tf.int32, tf.int32, tf.int32, tf.int32, tf.float32, tf.int32))
     elif mode == tf.estimator.ModeKeys.EVAL:
         input_ids, input_mask, masked_lm_ids, masked_lm_positions, masked_lm_weights, tag_ids = tf.py_func(
@@ -337,8 +344,6 @@ def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate
     teacher_loss = None
     if mode == tf.estimator.ModeKeys.TRAIN:
         # teacher update rate
-        teacher_update = tf.Variable(0.5)
-
         def compute_teacher_loss():
             # Update teacher
             # Reward is student loss
@@ -357,14 +362,9 @@ def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate
             teacher_loss = tf.reduce_mean(- log_q * reward)
             return teacher_loss
 
-        coin_toss = tf.random.uniform([])
-        # coin_toss = tf.Print(coin_toss, [coin_toss], 'Coin Toss: ')
-        # log_q = tf.Print(log_q, [log_q], 'log_q: ')
-        teacher_loss = tf.cond(coin_toss < teacher_update, lambda : compute_teacher_loss(), lambda: tf.constant(0.0))
+        teacher_loss = tf.cond(coin_toss < teacher_update, lambda: compute_teacher_loss(), lambda: tf.constant(0.0))
         # teacher_loss = tf.Print(teacher_loss, [teacher_loss], 'Teacher loss: ')
         total_loss = student_loss + teacher_loss
-
-
     tvars = tf.trainable_variables()
 
     initialized_variable_names = {}
@@ -467,6 +467,22 @@ def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate
 
   return model_fn
 
+def argmax_subset(input_mask, output_weights, max_predictions_per_seq):
+    output_weights = tf.cast(input_mask, dtype=tf.float32) * output_weights
+    # output_weights = tf.clip_by_value(output_weights, 1e-20, 1.0)
+    # logp = tf.log(output_weights)
+    threshold = tf.expand_dims(tf.math.top_k(output_weights, k = max_predictions_per_seq).values[:,-1],-1) * tf.ones_like(input_mask, dtype=tf.float32)
+
+    samples = tf.where(output_weights < threshold, \
+              tf.zeros_like(input_mask, dtype=tf.int32), tf.ones_like(input_mask, dtype=tf.int32))
+    log_q = tf.zeros_like(input_mask, dtype=tf.float32)
+    return samples, log_q
+
+def sample_masking_subset(raw_input_mask, action_probs, max_predictions_per_seq):
+    logZ, log_prob = calculate_partition_table(raw_input_mask, action_probs,
+                                               max_predictions_per_seq)
+    samples, log_q = sampling_a_subset(raw_input_mask, logZ, log_prob, max_predictions_per_seq)
+    return samples, log_q
 
 def calculate_partition_table(input_mask, output_weights, max_predictions_per_seq):
     shape = teacher.get_shape_list(output_weights, expected_rank=2)
