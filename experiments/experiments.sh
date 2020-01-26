@@ -30,6 +30,8 @@ smux new-session --partition=m3g --time=2-00:00:00 --gres=gpu:1
     sbatch --job-name=electra-adv --time=2-00:00:00 submit-job-m3g-V100.sh  scratch-electra-adv.sh 2301
     sbatch --job-name=electra-adv  submit-job-dgx.sh  scratch-electra-adv.sh
 
+    ## Small epochs
+    sbatch --job-name=ori-adv- --time=2-00:00:00 submit-job-m3g-V100.sh scratch-adv.sh
 
 
 ### Evaluate
