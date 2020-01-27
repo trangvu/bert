@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-smux new-session --partition=m3g --time=2-00:00:00 --gres=gpu:1
+smux new-session --partition=m3c --time=2-00:00:00 --gres=gpu:1
 
 ### Prepare data
     ## Wikibook
