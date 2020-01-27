@@ -12,4 +12,4 @@ source $ROOT_DIR/env/bin/activate
 language=$1
 OUTPUT_DIR=$DATA_ROOT/wikidump/$language"-raw"
 
-python learn_wordpiece.py --files $DATA_DIR/joints.txt --out $OUTPUT_DIR --name $language'_vocab.txt'
+python learn_wordpiece.py --files $DATA_DIR/$language"-raw"/joints.txt --out $OUTPUT_DIR --name $language'_vocab.txt'

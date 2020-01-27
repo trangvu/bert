@@ -12,7 +12,9 @@ wget http://dumps.wikimedia.org/dewiki/latest/dewiki-latest-pages-articles.xml.b
 - joints to a single file
 
 - Learn vocabulary using huggingface tokenize
-   python learn_wordpiece.py --files 
+```
+   bash create-wordpiece-vocab.sh ru
+```
     
 
 #### Bookcorpus

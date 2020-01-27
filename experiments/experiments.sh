@@ -16,7 +16,7 @@ smux new-session --partition=m3g --time=2-00:00:00 --gres=gpu:1
     sbatch --job-name=scratch-pos submit-job-rqtp.sh  scratch-pos.sh 2301
     sbatch --job-name=scratch-entropy submit-job-rqtp.sh  scratch-entropy.sh 2301
     sbatch --job-name=scratch-adv submit-job-rqtp.sh  scratch-adv.sh
-    sbatch --job-name=scratch-adv  submit-job-dgx.sh  scratch-adv.sh
+    sbatch --job-name=scratch-adv-long  submit-job-dgx.sh  scratch-adv.sh
 
     sbatch --job-name=scratch-rand --time=2-00:00:00 submit-job-m3g-V100.sh  scratch-rand.sh 2301
     sbatch --job-name=scratch-pos --time=2-00:00:00 submit-job-m3g-V100.sh   scratch-pos.sh 2301
@@ -30,6 +30,17 @@ smux new-session --partition=m3g --time=2-00:00:00 --gres=gpu:1
     sbatch --job-name=electra-adv --time=2-00:00:00 submit-job-m3g-V100.sh  scratch-electra-adv.sh 2301
     sbatch --job-name=electra-adv  submit-job-dgx.sh  scratch-electra-adv.sh
 
+    ## Long
+    sbatch --job-name=scratch-rand-long submit-job-m3g-V100.sh  scratch-rand.sh -long
+    sbatch --job-name=scratch-pos-long submit-job-m3g-V100.sh   scratch-pos.sh -long
+    sbatch --job-name=scratch-entropy-long submit-job-m3g-V100.sh   scratch-entropy.sh -long
+    sbatch --job-name=scratch-adv-long submit-job-m3g-V100.sh scratch-adv.sh -long
+
+    sbatch --job-name=electra-rand-long submit-job-m3g-V100.sh  scratch-electra-rand.sh -long
+    sbatch --job-name=electra-pos-long submit-job-m3g-V100.sh  scratch-electra-pos.sh -long
+    sbatch --job-name=electra-entropy-long submit-job-m3g-V100.sh  scratch-electra-entropy.sh -long
+    sbatch --job-name=electra-adv-long submit-job-m3g-V100.sh  scratch-electra-adv.sh -long
+
     ## Small epochs
     sbatch --job-name=ori-adv-epochs --time=2-00:00:00 submit-job-m3g-V100.sh scratch-adv.sh
     sbatch --job-name=electra-adv-epochs --time=2-00:00:00 submit-job-m3g-V100.sh scratch-electra-adv.sh
@@ -38,11 +49,17 @@ smux new-session --partition=m3g --time=2-00:00:00 --gres=gpu:1
     sbatch --job-name=ori-entropy-epochs submit-job-rqtp.sh  scratch-entropy.sh
 
     sbatch --job-name=electra-rand-epochs submit-job-rqtp.sh  scratch-electra-rand.sh
-    sbatch --job-name=electra-pos-epochs submit-job-rqtp.sh  scratch-electra-pos.sh
-    sbatch --job-name=electra-entropy-epochs submit-job-rqtp.sh  scratch-electra-entropy.sh
+    sbatch --job-name=electra-pos-epochs --time=2-00:00:00 submit-job-m3g-V100.sh  scratch-electra-pos.sh
+    sbatch --job-name=electra-entropy-epochs --time=2-00:00:00 submit-job-m3g-V100.sh scratch-electra-entropy.sh
 
 
 ### Evaluate
+    ## Evaluate multiple epochs experiment
+    sbatch --job-name=glue-ori-rand-epochs --time=1-00:00:00 submit-job-m3h-P100.sh evaluate_glue.sh ori-rand-epochs  /home/xvuthith/da33_scratch/trang/masked-lm/models/ori-rand-epochs
+    sbatch --job-name=glue-ori-pos-epochs --time=1-00:00:00 submit-job-m3h-P100.sh evaluate_glue.sh ori-pos-epochs  /home/xvuthith/da33_scratch/trang/masked-lm/models/ori-pos-epochs
+    sbatch --job-name=glue-ori-entropy-epochs --time=1-00:00:00 submit-job-m3h-P100.sh evaluate_glue.sh ori-entropy-epochs  /home/xvuthith/da33_scratch/trang/masked-lm/models/ori-entropy-epochs
+    sbatch --job-name=glue-ori-adv-epochs --time=1-00:00:00 submit-job-m3h-P100.sh evaluate_glue.sh ori-adv-epochs  /home/xvuthith/da33_scratch/trang/masked-lm/models/ori-adv-epochs
+
     sbatch --job-name=glue-scr-rand --time=1-00:00:00 submit-job-m3g-V100.sh evaluate_glue.sh bert-rand  /home/xvuthith/da33_scratch/trang/masked-lm/models/bert-rand-small
     sbatch --job-name=glue-scr-pos --time=1-00:00:00 submit-job-m3g-V100.sh evaluate_glue.sh bert-pos  /home/xvuthith/da33_scratch/trang/masked-lm/models/bert-pos-small
     sbatch --job-name=glue-scr-entropy --time=1-00:00:00 submit-job-m3g-V100.sh evaluate_glue.sh bert-entropy  /home/xvuthith/da33_scratch/trang/masked-lm/models/bert-entropy-small
