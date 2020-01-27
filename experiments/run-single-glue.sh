@@ -14,7 +14,7 @@ MODEL_DIR=$2
 EXP_NAME=$3
 OUT_DIR=$4
 TASKS=( QQP QNLI "SST-2" CoLA "STS-B" MRPC RTE WNLI MNLI)
-LEARNING_RATES=( 3 3 10 3 10 3 10 3 3 )
+LEARNING_RATES=( 3 3 3 3 10 3 10 3 3 )
 
 TASK_NAME=${TASKS[$index]}
 LEARNING_RATE=${LEARNING_RATES[$index]}
@@ -38,7 +38,7 @@ if [ $TASK_NAME = 'STS-B' ]; then
       --init_checkpoint=$MODEL_DIR \
       --max_seq_length=128 \
       --train_batch_size=32 \
-      --learning_rate=1e-5 \
+      --learning_rate=3e-4 \
       --num_train_epochs=$LEARNING_RATE \
       --use_sigmoid_act=False \
       --do_lower_case=true \
@@ -70,7 +70,7 @@ else
       --init_checkpoint=$MODEL_DIR \
       --max_seq_length=128 \
       --train_batch_size=32 \
-      --learning_rate=1e-5 \
+      --learning_rate=3e-4 \
       --do_lower_case=true \
       --num_train_epochs=$LEARNING_RATE \
       --output_dir=$OUTPUT
