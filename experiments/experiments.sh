@@ -55,10 +55,15 @@ smux new-session --partition=m3g --time=2-00:00:00 --gres=gpu:1
 
 ### Evaluate
     ## Evaluate multiple epochs experiment
-    sbatch --job-name=glue-ori-rand-epochs --time=1-00:00:00 submit-job-m3h-P100.sh evaluate_glue.sh ori-rand-epochs  /home/xvuthith/da33_scratch/trang/masked-lm/models/ori-rand-epochs
-    sbatch --job-name=glue-ori-pos-epochs --time=1-00:00:00 submit-job-m3h-P100.sh evaluate_glue.sh ori-pos-epochs  /home/xvuthith/da33_scratch/trang/masked-lm/models/ori-pos-epochs
-    sbatch --job-name=glue-ori-entropy-epochs --time=1-00:00:00 submit-job-m3h-P100.sh evaluate_glue.sh ori-entropy-epochs  /home/xvuthith/da33_scratch/trang/masked-lm/models/ori-entropy-epochs
-    sbatch --job-name=glue-ori-adv-epochs --time=1-00:00:00 submit-job-m3h-P100.sh evaluate_glue.sh ori-adv-epochs  /home/xvuthith/da33_scratch/trang/masked-lm/models/ori-adv-epochs
+    sbatch --job-name=glue-ori-rand-epochs --time=1-00:00:00 submit-job-m3h-P100.sh evaluate_glue.sh ori-rand-epochs  /home/xvuthith/da33_scratch/trang/masked-lm/models/bert-rand-small-epoch
+    sbatch --job-name=glue-ori-pos-epochs --time=1-00:00:00 submit-job-m3h-P100.sh evaluate_glue.sh ori-pos-epochs  /home/xvuthith/da33_scratch/trang/masked-lm/models/bert-pos-small-epoch
+    sbatch --job-name=glue-ori-entropy-epochs --time=1-00:00:00 submit-job-m3h-P100.sh evaluate_glue.sh ori-entropy-epochs  /home/xvuthith/da33_scratch/trang/masked-lm/models/bert-entropy-small-epoch
+    sbatch --job-name=glue-ori-adv-epochs --time=1-00:00:00 submit-job-m3h-P100.sh evaluate_glue.sh ori-adv-epochs  /home/xvuthith/da33_scratch/trang/masked-lm/models/bert-adv-small-epoch
+
+    sbatch --job-name=glue-electra-rand-epochs --time=1-00:00:00 submit-job-m3h-P100.sh evaluate_glue.sh electra-rand-epochs  /home/xvuthith/da33_scratch/trang/masked-lm/models/electra-rand-small-epoch
+    sbatch --job-name=glue-electra-pos-epochs --time=1-00:00:00 submit-job-m3h-P100.sh evaluate_glue.sh electra-pos-epochs  /home/xvuthith/da33_scratch/trang/masked-lm/models/electra-pos-small-epoch
+    sbatch --job-name=glue-electra-entropy-epochs --time=1-00:00:00 submit-job-m3h-P100.sh evaluate_glue.sh electra-entropy-epochs  /home/xvuthith/da33_scratch/trang/masked-lm/models/electra-entropy-small-epoch
+    sbatch --job-name=glue-electra-adv-epochs --time=1-00:00:00 submit-job-m3h-P100.sh evaluate_glue.sh electra-adv-epochs  /home/xvuthith/da33_scratch/trang/masked-lm/models/electra-adv-small-epoch
 
     sbatch --job-name=glue-scr-rand --time=1-00:00:00 submit-job-m3g-V100.sh evaluate_glue.sh bert-rand  /home/xvuthith/da33_scratch/trang/masked-lm/models/bert-rand-small
     sbatch --job-name=glue-scr-pos --time=1-00:00:00 submit-job-m3g-V100.sh evaluate_glue.sh bert-pos  /home/xvuthith/da33_scratch/trang/masked-lm/models/bert-pos-small
