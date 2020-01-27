@@ -41,6 +41,17 @@ smux new-session --partition=m3g --time=2-00:00:00 --gres=gpu:1
     sbatch --job-name=electra-entropy-long submit-job-m3g-V100.sh  scratch-electra-entropy.sh -long
     sbatch --job-name=electra-adv-long submit-job-m3g-V100.sh  scratch-electra-adv.sh -long
 
+    ## 6.25
+    sbatch --job-name=scratch-rand-625 --time=2-00:00:00 submit-job-m3g-V100.sh  scratch-rand.sh 625
+    sbatch --job-name=scratch-pos-625 --time=2-00:00:00 submit-job-m3g-V100.sh   scratch-pos.sh 625
+    sbatch --job-name=scratch-entropy-625 --time=2-00:00:00 submit-job-m3g-V100.sh   scratch-entropy.sh 625
+    sbatch --job-name=scratch-adv-625 --time=2-00:00:00 submit-job-m3g-V100.sh scratch-adv.sh 625
+
+    sbatch --job-name=electra-rand-625 --mem-per-cpu=25000 submit-job-rqtp.sh  scratch-electra-rand.sh 625
+    sbatch --job-name=electra-pos-625 --mem-per-cpu=25000 submit-job-rqtp.sh  scratch-electra-pos.sh 625
+    sbatch --job-name=electra-entropy-625 --mem-per-cpu=25000 submit-job-rqtp.sh  scratch-electra-entropy.sh 625
+    sbatch --job-name=electra-adv-625 --mem-per-cpu=25000 submit-job-rqtp.sh  scratch-electra-adv.sh 625
+
     ## Small epochs
     sbatch --job-name=ori-adv-epochs --time=2-00:00:00 submit-job-m3g-V100.sh scratch-adv.sh
     sbatch --job-name=electra-adv-epochs --time=2-00:00:00 submit-job-m3g-V100.sh scratch-electra-adv.sh

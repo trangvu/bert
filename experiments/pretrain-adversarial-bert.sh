@@ -34,7 +34,7 @@ cd $SRC_PATH && python3 run_adversarial_pretraining.py \
 --train_batch_size=128 \
 --max_seq_length=128 \
 --max_predictions_per_seq=20 \
---num_train_steps=1000000 \
+--num_train_steps=80000 \
 --num_warmup_steps=10000 \
 --learning_rate=5e-4 \
 --vocab_file=$VOCAB_FILE \
