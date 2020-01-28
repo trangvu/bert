@@ -31,3 +31,8 @@ cut -d'	' -f1-2
 #Testing result
 
 smux new-session --partition=m3g --time=2-00:00:00 --gres=gpu:1
+
+
+### Adaptation
+DQD: https://github.com/darsh10/qra_code.git
+AdaptaBERT: https://github.com/xhan77/AdaptaBERT
