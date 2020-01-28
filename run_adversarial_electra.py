@@ -369,7 +369,7 @@ def model_fn_builder(discriminator_config, generator_config, teacher_config, lam
             # Reward is student loss
             # Baseline is the mean of reward (but we only have 1 sample)
             # masked_lm_example_loss
-            shape = teacher.get_shape_list(masked_lm_ids, expected_rank=2)
+            shape = teacher.get_shape_list(disc_label_ids, expected_rank=2)
             batch_size = shape[0]
             seq_len = shape[1]
             student_per_example_loss = tf.reshape(discriminator_example_loss, [batch_size, seq_len])
@@ -587,7 +587,7 @@ def sampling_a_subset(input_mask, logZ, logp, max_predictions_per_seq):
     def sampling_loop_cond(j, subset, count, left, log_q):
         # j < N and left > 0
         # we want to exclude last tokens, because it's always a special token [SEP]
-        return tf.logical_or(tf.less(j,  seq_len), tf.equal(tf.reduce_sum(left),0))
+        return tf.logical_or(tf.less(j,  seq_len), tf.greater(tf.reduce_sum(left),0))
 
     def sampling_body(j, subset, count, left, log_q):
         # calculate log_q_yes and log_q_no

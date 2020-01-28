@@ -50,7 +50,7 @@ smux new-session --partition=m3c --time=2-00:00:00 --gres=gpu:1
     sbatch --job-name=electra-rand-625 --mem-per-cpu=25000 submit-job-rqtp.sh  scratch-electra-rand.sh 625
     sbatch --job-name=electra-pos-625 --mem-per-cpu=25000 submit-job-rqtp.sh  scratch-electra-pos.sh 625
     sbatch --job-name=electra-entropy-625 --mem-per-cpu=25000 submit-job-rqtp.sh  scratch-electra-entropy.sh 625
-    sbatch --job-name=electra-adv-625 --mem-per-cpu=25000 submit-job-rqtp.sh  scratch-electra-adv.sh 625
+    sbatch --job-name=electra-adv-625 --time=2-00:00:00 submit-job-m3g-V100.sh  scratch-electra-adv.sh 625
 
     ## Small epochs
     sbatch --job-name=ori-adv-epochs --time=2-00:00:00 submit-job-m3g-V100.sh scratch-adv.sh 2801
@@ -70,3 +70,5 @@ smux new-session --partition=m3c --time=2-00:00:00 --gres=gpu:1
     sbatch --job-name=glue-electra-pos-625 --time=1-00:00:00 submit-job-m3h-P100.sh evaluate_glue.sh electra-pos-small625  /home/xvuthith/da33_scratch/trang/masked-lm/models/electra-pos-small625
     sbatch --job-name=glue-electra-entropy-625 --time=1-00:00:00 submit-job-m3h-P100.sh evaluate_glue.sh electra-entropy-small625  /home/xvuthith/da33_scratch/trang/masked-lm/models/electra-entropy-small625
     sbatch --job-name=glue-electra-rand-625 --time=1-00:00:00 submit-job-m3h-P100.sh evaluate_glue.sh electra-rand-small625  /home/xvuthith/da33_scratch/trang/masked-lm/models/electra-rand-small625
+
+    sbatch --job-name=glue-bert-adv-625 --time=1-00:00:00 submit-job-m3h-P100.sh evaluate_glue.sh bert-adv-small625  /home/xvuthith/da33_scratch/trang/masked-lm/models/bert-adv-small625
