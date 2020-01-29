@@ -20,7 +20,7 @@ FLAGS = flags.FLAGS
 
 flags.DEFINE_string("data_dir", None,
                     "data dir")
-flags.DEFINE_string("output_file", "twitter_conll.tfrecord",
+flags.DEFINE_string("output_file", "wnut_train.tfrecord",
                     "output file")
 flags.DEFINE_bool(
     "do_lower_case", True,
@@ -160,8 +160,8 @@ def main(_):
         vocab_file=FLAGS.vocab_file, do_lower_case=FLAGS.do_lower_case)
     processor = DataProcessor()
     twitter_examples = processor.get_sep_twitter_train_examples(FLAGS.data_dir)
-    conll_examples = processor.get_conll_train_examples(FLAGS.data_dir)
-    examples = twitter_examples + conll_examples
+    # conll_examples = processor.get_conll_train_examples(FLAGS.data_dir)
+    examples = twitter_examples #+ conll_examples
     random.shuffle(examples)
     total_written = 0
     writer = tf.python_io.TFRecordWriter(FLAGS.output_file)
