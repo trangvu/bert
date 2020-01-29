@@ -8,7 +8,11 @@ python covert-to-tfrecord.py --data_dir=./data --output_filr=./data/domain_tunin
 cat training.1600000.processed.noemoticon.csv | cut -d ',' -f6- > sentiment140.train.txt
 python clean-data.py
 iconv -t utf-8 sentiment140.clean.train.txt > sentiment140.clean.utf8.train.txt
-shuf -n 100000 sentiment140.clean.utf8.train.txt > sentiment140.100k.txt
-shuf -n 500000 sentiment140.clean.utf8.train.txt > sentiment140.500k.txt
-shuf -n 1000000 sentiment140.clean.utf8.train.txt > sentiment140.1M.txt
+
+cat sentiment140.clean.utf8.train.txt | $mosesdecoder/scripts/tokenizer/normalize-punctuation.perl -l en | $mosesdecoder/scripts/tokenizer/tokenizer.perl -a -l en > sentiment140.clean.utf8.train.tok
+
+shuf -n 100000 sentiment140.clean.utf8.train.tok > sentiment140.100k.tok
+shuf -n 500000 sentiment140.clean.utf8.train.tok > sentiment140.500k.tok
+shuf -n 1000000 sentiment140.clean.utf8.train.tok > sentiment140.1M.tok
+
 ```
