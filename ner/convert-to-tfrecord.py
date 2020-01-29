@@ -115,12 +115,14 @@ def convert_example_to_features(example, max_seq_length, max_predictions_per_seq
     input_ids = tokenizer.convert_tokens_to_ids(tokens)
     input_mask = [1] * len(input_ids)
     segment_ids = [0] * len(input_ids)
+    tags_ids = [-1] * len(input_ids)
     assert len(input_ids) <= max_seq_length
 
     while len(input_ids) < max_seq_length:
       input_ids.append(0)
       input_mask.append(0)
       segment_ids.append(0)
+      tags_ids.append(-1)
 
     assert len(input_ids) == max_seq_length
     assert len(input_mask) == max_seq_length
@@ -132,6 +134,7 @@ def convert_example_to_features(example, max_seq_length, max_predictions_per_seq
       masked_lm_positions.append(0)
       masked_lm_ids.append(0)
       masked_lm_weights.append(0.0)
+    next_sentence_label = 0
     features = collections.OrderedDict()
     features["input_ids"] = create_int_feature(input_ids)
     features["input_mask"] = create_int_feature(input_mask)
@@ -139,6 +142,8 @@ def convert_example_to_features(example, max_seq_length, max_predictions_per_seq
     features["masked_lm_positions"] = create_int_feature(masked_lm_positions)
     features["masked_lm_ids"] = create_int_feature(masked_lm_ids)
     features["masked_lm_weights"] = create_float_feature(masked_lm_weights)
+    features["next_sentence_labels"] = create_int_feature([next_sentence_label])
+    features["tag_ids"] = create_int_feature(tags_ids)
     return features
 
 def create_int_feature(values):
