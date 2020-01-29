@@ -12,9 +12,9 @@ source $ROOT_DIR/env/bin/activate
 MODEL_DIR=$1
 EXP_NAME=$2
 OUT_DIR=$3
-TASK_NAME='WNLI'
+TASK_NAME='STS-B'
 LEARNING_RATE=2e-5
-TRAINING_EPOCHS=3
+TRAINING_EPOCHS=10
 MODEL_NAME="bert_model.ckpt"
 OUTPUT=$OUT_DIR/$TASK_NAME
 VOCAB_FILE=$SRC_PATH'/config/en_uncase_vocab.txt'
@@ -22,7 +22,8 @@ CONFIG_FILE=$SRC_PATH'/config/small_bert_config.json'
 
 
 set -x
-cd $SRC_PATH && python3 run_classifier.py \
+    echo "Train classifier "TASK_NAME" with BERT base model "
+    cd $SRC_PATH && python3 run_regression.py \
       --task_name=$TASK_NAME \
       --do_train=true \
       --do_eval=true \
@@ -34,6 +35,7 @@ cd $SRC_PATH && python3 run_classifier.py \
       --max_seq_length=128 \
       --train_batch_size=32 \
       --learning_rate=$LEARNING_RATE \
-      --do_lower_case=true \
       --num_train_epochs=$TRAINING_EPOCHS \
+      --use_sigmoid_act=False \
+      --do_lower_case=true \
       --output_dir=$OUTPUT

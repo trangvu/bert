@@ -8,11 +8,10 @@ module load cuda/10.0
 module load cudnn/7.6.5-cuda10.1
 source $ROOT_DIR/env/bin/activate
 
-
 MODEL_DIR=$1
 EXP_NAME=$2
 OUT_DIR=$3
-TASK_NAME='WNLI'
+TASK_NAME='QNLI'
 LEARNING_RATE=2e-5
 TRAINING_EPOCHS=3
 MODEL_NAME="bert_model.ckpt"
@@ -22,7 +21,8 @@ CONFIG_FILE=$SRC_PATH'/config/small_bert_config.json'
 
 
 set -x
-cd $SRC_PATH && python3 run_classifier.py \
+    echo "Train classifier "TASK_NAME" with BERT base model "
+    cd $SRC_PATH && python3 run_classifier.py \
       --task_name=$TASK_NAME \
       --do_train=true \
       --do_eval=true \
