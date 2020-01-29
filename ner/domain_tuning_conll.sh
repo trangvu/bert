@@ -31,7 +31,7 @@ cd $SRC_PATH && python3 run_pretraining.py \
 --do_eval=True \
 --do_lower_case \
 --bert_config_file=$CONFIG_FILE \
---train_batch_size=64 \
+--train_batch_size=32 \
 --max_seq_length=128 \
 --max_predictions_per_seq=20 \
 --num_train_steps=1000 \
