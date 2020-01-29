@@ -29,6 +29,7 @@ cd $SRC_PATH && python3 run_adversarial_pretraining.py \
 --output_dir=$OUT_DIR \
 --do_train=True \
 --do_eval=True \
+--do_lower_case \
 --bert_config_file=$CONFIG_FILE \
 --teacher_config_file=$TEACHER_CONFIG_FILE \
 --train_batch_size=128 \

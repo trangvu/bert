@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-smux new-session --partition=m3c --time=2-00:00:00 --gres=gpu:1
+smux new-session --partition=m3g --time=2-00:00:00 --gres=gpu:1
 
 ### Prepare data
     ## Wikibook
@@ -31,8 +31,8 @@ smux new-session --partition=m3c --time=2-00:00:00 --gres=gpu:1
     sbatch --job-name=electra-adv  submit-job-dgx.sh  scratch-electra-adv.sh
 
     ## Long
-    sbatch --job-name=scratch-rand-long submit-job-m3g-V100.sh  scratch-rand.sh -long
-    sbatch --job-name=scratch-pos-long submit-job-m3g-V100.sh   scratch-pos.sh -long
+    sbatch --job-name=scratch-rand-long submit-job-rqtp.sh  scratch-rand.sh -long
+    sbatch --job-name=scratch-pos-long submit-job-rqtp.sh   scratch-pos.sh -long
     sbatch --job-name=scratch-entropy-long submit-job-m3g-V100.sh   scratch-entropy.sh -long
     sbatch --job-name=scratch-adv-long submit-job-m3g-V100.sh scratch-adv.sh -long
 

@@ -30,6 +30,7 @@ cd $SRC_PATH && python3 run_adversarial_electra.py \
 --output_dir=$OUT_DIR \
 --do_train=True \
 --do_eval=True \
+--do_lower_case \
 --discriminator_config_file=$CONFIG_FILE \
 --generator_config_file=$GENERATOR_CONFIG_FILE \
 --teacher_config_file=$TEACHER_CONFIG_FILE \

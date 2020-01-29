@@ -28,6 +28,7 @@ cd $SRC_PATH && python3 run_electra.py \
 --output_dir=$OUT_DIR \
 --do_train=True \
 --do_eval=True \
+--do_lower_case \
 --discriminator_config_file=$CONFIG_FILE \
 --generator_config_file=$GENERATOR_CONFIG_FILE \
 --train_batch_size=128 \
