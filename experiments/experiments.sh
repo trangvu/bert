@@ -72,3 +72,14 @@ smux new-session --partition=m3g --time=2-00:00:00 --gres=gpu:1
     sbatch --job-name=glue-electra-rand-625 --time=1-00:00:00 submit-job-m3h-P100.sh evaluate_glue.sh electra-rand-small625  /home/xvuthith/da33_scratch/trang/masked-lm/models/electra-rand-small625
 
     sbatch --job-name=glue-bert-adv-625 --time=1-00:00:00 submit-job-m3h-P100.sh evaluate_glue.sh bert-adv-small625  /home/xvuthith/da33_scratch/trang/masked-lm/models/bert-adv-small625
+
+
+### NER Adaptation
+    ## Domain tuning - CoNLL
+    sbatch --job-name=adapt-rand-conll --time=1-00:00:00 submit-job-m3g-V100.sh adapt-rand.sh
+    sbatch --job-name=adapt-pos-conll --time=1-00:00:00 submit-job-m3g-V100.sh adapt-pos.sh
+    sbatch --job-name=adapt-entropy-conll submit-job-rqtp.sh adapt-entropy.sh
+    sbatch --job-name=adapt-adv-conll submit-job-rqtp.sh adapt-adv.sh
+
+    ## Domain tuning - Sentiment140
+

@@ -20,7 +20,7 @@ mkdir -p $OUT_DIR
 
 CONFIG_FILE=$SRC_PATH'/config/base_bert_config.json'
 GENERATOR_CONFIG_FILE=$SRC_PATH'/config/base_generator_config.json'
-BERT_BASE_DIR=$ROOT_DIR'/models/bert_base_uncased'
+BERT_BASE_DIR=$ROOT_DIR'/models/bert_base_uncased/bert_model.ckpt'
 shift
 PARAMS="$@"
 
