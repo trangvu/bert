@@ -1,5 +1,6 @@
 #!/bin/bash
-ROOT_DIR=`cd ../.. &&pwd`
+#ROOT_DIR=`cd ../.. &&pwd`
+ROOT_DIR=/scratch/da33/trang/masked-lm
 DATE=`date '+%Y%m%d-%H%M%S'`
 SRC_PATH=$ROOT_DIR'/bert'
 
