@@ -15,7 +15,7 @@ EVAL_RESULT=$RUN_NAME','$TASK_NAME
 for (( index=1; index<=10; index+=1 )); do
   echo "RUN ${index}"
   OUTPUT_DIR_RUN=$OUTPUT_DIR"/run-${index}"
-  cd .. && bash ./$TASK_SCRIPT $EXP_NAME $MODEL_DIR $OUTPUT_DIR_RUN
+  cd .. && bash ./$TASK_SCRIPT $MODEL_DIR $EXP_NAME $OUTPUT_DIR_RUN
   ACC=`cat $OUTPUT_DIR_RUN'/'$TASK_NAME'/eval_results.txt' | grep eval_accuracy | cut -d ' ' -f 3`
   if [ -z "$var" ]
   then

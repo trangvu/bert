@@ -936,7 +936,7 @@ def main(_):
       model_dir=FLAGS.output_dir,
       save_checkpoints_steps=FLAGS.save_checkpoints_steps,
       log_step_count_steps=10,
-      session_config=tf.ConfigProto(log_device_placement=True),
+      session_config=tf.ConfigProto(log_device_placement=False),
       tpu_config=tf.contrib.tpu.TPUConfig(
           iterations_per_loop=FLAGS.iterations_per_loop,
           num_shards=FLAGS.num_tpu_cores,
