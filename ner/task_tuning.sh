@@ -31,7 +31,7 @@ cd $SRC_PATH && python3 run_ner.py \
 --bert_config_file=$CONFIG_FILE \
 --train_batch_size=32 \
 --max_seq_length=128 \
---num_train_epochs=3 \
+--num_train_epochs=10 \
 --num_warmup_steps=100 \
 --learning_rate=5e-5 \
 --vocab_file=$VOCAB_FILE \
