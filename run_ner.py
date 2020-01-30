@@ -225,7 +225,7 @@ def convert_single_example(ex_index, example, label_list, max_seq_length,
   for token in example.text:
       new_tokens = tokenizer.tokenize(token)
       if len(bert_tokens) + len(new_tokens) > max_seq_length - 1:
-          # print("You shouldn't see this since the test set is already pre-separated.")
+          print("You shouldn't see this since the test set is already pre-separated.")
           break
       else:
           orig_to_tok_map.append(len(bert_tokens))
@@ -745,9 +745,20 @@ def main(_):
 
     label_ids = []
     label_masks = []
-    for ex in predict_features:
-        label_ids.append(ex.label_ids)
-        label_masks.append(ex.label_mask)
+    true_labels = []
+    final_preds = []
+    for (feature, example, pred) in zip(predict_features, predict_examples, preds):
+        tokens = tokenizer.convert_ids_to_tokens(feature.input_ids)
+        final_pred = []
+        true_pred = []
+        for tok, pred, mask in zip(tokens, pred, feature.label_mask):
+            if mask == 1:
+                true_pred.append(example.label[len(final_pred)])
+                final_pred.append(label_list[pred])
+        true_labels.append(true_pred)
+        final_preds.append(final_pred)
+        label_ids.append(feature.label_ids)
+        label_masks.append(feature.label_mask)
 
 
     preds = np.asarray(preds)
@@ -764,9 +775,13 @@ def main(_):
         test_FN += FN
 
     test_accuracy = test_accuracy / nb_test_examples  # micro average
+    pre, rec, f1 = f1score(true_labels, final_preds)
     result = {'test_loss': test_loss,
               'test_accuracy': test_accuracy,
-              'test_f1': compute_f1(test_TP, test_FP, test_FN)}
+              'test_f1': compute_f1(test_TP, test_FP, test_FN),
+              'P': pre,
+              'R': rec,
+              'F1': f1}
 
     output_test_file = os.path.join(FLAGS.output_dir, "test_results.txt")
     with open(output_test_file, "w") as writer:
@@ -849,6 +864,44 @@ def compute_f1(TP, FP, FN):
     R = TP / (TP + FN)
     F1 = 2 * P * R / (P + R)
     return "Precision: " + str(P) + ", Recall: " + str(R) + ", F1: " + str(F1)
+
+def f1score(Y_true, y_pred):
+    pre = 0
+    pre_tot = 0
+    rec = 0
+    rec_tot = 0
+    corr = 0
+    total = 0
+    for i in range(len(Y_true)):
+        for j in range(len(Y_true[i])):
+            total += 1
+            if y_pred[i][j] == Y_true[i][j]:
+                corr += 1
+            if y_pred[i][j] != 'O':  # not 'O'
+                pre_tot += 1
+                if y_pred[i][j] == Y_true[i][j]:
+                    pre += 1
+            if Y_true[i][j] != 'O':
+                rec_tot += 1
+                if y_pred[i][j] == Y_true[i][j]:
+                    rec += 1
+
+    res = corr * 1. / total
+    # print("Accuracy (token level)", res)
+    if pre_tot == 0:
+        pre = 0
+    else:
+        pre = 1. * pre / pre_tot
+    rec = 1. * rec / rec_tot
+    # print(pre, rec)
+
+    beta = 1
+    f1score = 0
+    if pre != 0 or rec != 0:
+        f1score = (beta * beta + 1) * pre * rec / \
+                  (beta * beta * pre + rec)
+    # print("F1", f1score)
+    return pre, rec, f1score
 
 if __name__ == "__main__":
   flags.mark_flag_as_required("data_dir")
