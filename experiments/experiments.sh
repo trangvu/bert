@@ -82,4 +82,7 @@ smux new-session --partition=m3g --time=2-00:00:00 --gres=gpu:1
     sbatch --job-name=adapt-adv-conll submit-job-rqtp.sh adapt-adv.sh
 
     ## Domain tuning - Sentiment140
-
+    sbatch --job-name=adapt-rand-tweet --time=1-00:00:00 submit-job-m3g-V100.sh adapt-rand.sh
+    sbatch --job-name=adapt-pos-tweet --time=1-00:00:00 submit-job-m3g-V100.sh adapt-pos.sh
+    sbatch --job-name=adapt-entropy-tweet --time=1-00:00:00 submit-job-m3g-V100.sh adapt-entropy.sh
+    sbatch --job-name=adapt-adv-tweet --time=1-00:00:00 submit-job-m3g-V100.sh adapt-adv.sh
