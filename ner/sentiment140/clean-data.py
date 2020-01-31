@@ -1,6 +1,7 @@
 '''
 Created by trangvu on 29/01/20
 '''
+import pickle
 
 file="/home/vuth0001/workspace/2019-bert-selective-masking/data/twitter/trainingandtestdata/sentiment140.train.txt"
 outfile="/home/vuth0001/workspace/2019-bert-selective-masking/data/twitter/trainingandtestdata/sentiment140.clean.train.txt"
