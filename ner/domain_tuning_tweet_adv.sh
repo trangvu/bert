@@ -13,7 +13,7 @@ source $ROOT_DIR/env/bin/activate
 INPUT="train"
 VOCAB_FILE=$SRC_PATH'/config/en_uncase_vocab.txt'
 EXP_NAME=$1
-INPUT_FILE=$DATA_DIR'/sentiment140.500k.tfrecord,'$SRC_PATH'/ner/data/wnut_training.tfrecord'
+INPUT_FILE=$DATA_DIR'/rand_wnut.tfrecord,'$DATA_DIR'/sim_wnut.tfrecord,'$SRC_PATH'/ner/data/wnut_training.tfrecord'
 OUT_DIR="${ROOT_DIR}/models/${EXP_NAME}"
 mkdir -p $OUT_DIR
 

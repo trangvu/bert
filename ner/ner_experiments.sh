@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+### Domain-tuning
+    sbatch --job-name=tweet-sim-adv-domain-10 submit-job-rqtp.sh adapt-adv.sh sim
+    sbatch --job-name=tweet-sim-rand-domain-10 submit-job-rqtp.sh adapt-rand.sh sim
+    sbatch --job-name=tweet-sim-entropy-domain-10 submit-job-rqtp.sh adapt-entropy.sh sim
 
 ### Task-tuning on target
     @baseline
@@ -15,6 +19,6 @@
     sbatch --job-name=conll-rand-tgt-10 submit-job-rqtp.sh task_tuning.sh conll-rand-tgt-10-new  /scratch/da33/trang/masked-lm/models/adapt-conll-rand
 
    @conll source
-   sbatch --job-name=conll-adv-tgt-10 submit-job-rqtp.sh task_tuning_source.sh conll-adv-src-10  /scratch/da33/trang/masked-lm/models/adapt-conll-adv
-    sbatch --job-name=conll-entropy-tgt-10 submit-job-rqtp.sh task_tuning_source.sh conll-entropy-src-10  /scratch/da33/trang/masked-lm/models/adapt-conll-entropy
-    sbatch --job-name=conll-rand-tgt-10 submit-job-rqtp.sh task_tuning_source.sh conll-rand-src-10  /scratch/da33/trang/masked-lm/models/adapt-conll-rand
+   sbatch --job-name=conll-adv-src-10 submit-job-rqtp.sh task_tuning_source.sh conll-adv-src-10  /scratch/da33/trang/masked-lm/models/adapt-conll-adv
+    sbatch --job-name=conll-entropy-src-10 submit-job-rqtp.sh task_tuning_source.sh conll-entropy-src-10  /scratch/da33/trang/masked-lm/models/adapt-conll-entropy
+    sbatch --job-name=conll-rand-tgt-src submit-job-rqtp.sh task_tuning_source.sh conll-rand-src-10  /scratch/da33/trang/masked-lm/models/adapt-conll-rand
