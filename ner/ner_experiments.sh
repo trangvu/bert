@@ -2,7 +2,13 @@
 ### Domain-tuning
     sbatch --job-name=tweet-sim-adv-domain-10 submit-job-rqtp.sh adapt-adv.sh sim
     sbatch --job-name=tweet-sim-rand-domain-10 submit-job-rqtp.sh adapt-rand.sh sim
-    sbatch --job-name=tweet-sim-entropy-domain-10 submit-job-rqtp.sh adapt-entropy.sh sim
+    sbatch --job-name=tweet-sim-entropy-domain-10 --time=1-00:00:00 submit-job-m3g-V100.sh adapt-entropy.sh sim
+
+    sbatch --job-name=conll-adv-domain-10 submit-job-rqtp.sh adapt-adv.sh 0302
+    sbatch --job-name=conll-rand-domain-10 submit-job-rqtp.sh adapt-rand.sh 0302
+    sbatch --job-name=conll-entropy-domain-10 -submit-job-rqtp.sh adapt-entropy.sh 0302
+
+
 
 ### Task-tuning on target
     @baseline
