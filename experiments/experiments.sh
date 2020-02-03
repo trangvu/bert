@@ -86,3 +86,9 @@ smux new-session --partition=m3g --time=2-00:00:00 --gres=gpu:1
     sbatch --job-name=adapt-pos-tweet --time=1-00:00:00 submit-job-m3g-V100.sh adapt-pos.sh
     sbatch --job-name=adapt-entropy-tweet --time=1-00:00:00 submit-job-m3g-V100.sh adapt-entropy.sh
     sbatch --job-name=adapt-adv-tweet --time=1-00:00:00 submit-job-m3g-V100.sh adapt-adv.sh
+
+### Cross lingual transfer
+    ## vi
+    sbatch --job-name=transfer-vi-rand submit-job-rqtp.sh adapt-rand.sh vi
+    sbatch --job-name=transfer-vi-entropy submit-job-rqtp.sh adapt-entropy.sh vi
+    sbatch --job-name=transfer-vi-adv submit-job-rqtp.sh adapt-adv.sh vi
