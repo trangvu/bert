@@ -325,7 +325,7 @@ def model_fn_builder(bert_config, init_checkpoint, learning_rate,
                       init_string)
 
     tf.logging.info("**** Freeze transformer layers ****")
-    trainable_collection = tf.get_collection_ref(tf.GraphKeys.TRAINABLE_VARIABLES)
+    trainable_collection =  tf.compat.v1.get_collection_ref(tf.GraphKeys.TRAINABLE_VARIABLES)
     variables_to_remove = list()
     for vari in trainable_collection:
         # uses the attribute 'name' of the variable

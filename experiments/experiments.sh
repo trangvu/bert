@@ -92,3 +92,25 @@ smux new-session --partition=m3g --time=2-00:00:00 --gres=gpu:1
     sbatch --job-name=transfer-vi-rand submit-job-rqtp.sh adapt-rand.sh vi
     sbatch --job-name=transfer-vi-entropy submit-job-rqtp.sh adapt-entropy.sh vi
     sbatch --job-name=transfer-vi-adv submit-job-rqtp.sh adapt-adv.sh vi
+
+    ## es
+    sbatch --job-name=transfer-es-rand submit-job-rqtp.sh adapt-rand.sh es
+    sbatch --job-name=transfer-es-entropy submit-job-rqtp.sh adapt-entropy.sh es
+    sbatch --job-name=transfer-es-adv submit-job-m3g-V100.sh adapt-adv.sh es
+
+    ## ru
+    sbatch --job-name=transfer-ru-rand submit-job-m3g-V100.sh adapt-rand.sh ru
+    sbatch --job-name=transfer-ru-entropy submit-job-m3g-V100.sh adapt-entropy.sh ru
+    sbatch --job-name=transfer-ru-adv submit-job-m3g-V100.sh adapt-adv.sh ru
+
+    ## bg
+    sbatch --job-name=transfer-bg-rand submit-job-m3g-V100.sh adapt-rand.sh bg
+    sbatch --job-name=transfer-bg-entropy submit-job-m3g-V100.sh adapt-entropy-reza.sh bg
+    sbatch --job-name=transfer-bg-adv submit-job-m3g-V100.sh adapt-adv-reza.sh bg
+
+    ## el
+    sbatch --job-name=transfer-el-rand submit-job-m3g-V100.sh adapt-rand-reza.sh el
+    sbatch --job-name=transfer-el-entropy submit-job-m3g-V100.sh adapt-entropy-reza.sh el
+    sbatch --job-name=transfer-el-adv submit-job-m3g-V100.sh adapt-adv-reza.sh el
+
+

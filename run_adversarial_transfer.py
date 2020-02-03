@@ -395,7 +395,7 @@ def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate
     variables_to_remove = list()
     for vari in trainable_collection:
         # uses the attribute 'name' of the variable
-        if ("embeddings" not in vari.name) or ("teacher" not in vari.name):
+        if ("embeddings" not in vari.name) and ("teacher" not in vari.name):
             variables_to_remove.append(vari)
     for rem in variables_to_remove:
         trainable_collection.remove(rem)
