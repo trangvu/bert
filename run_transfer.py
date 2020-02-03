@@ -337,8 +337,7 @@ def model_fn_builder(bert_config, init_checkpoint, learning_rate,
     tvars = tf.trainable_variables()
     tf.logging.info(" **** Trainable variables [{}] **** ".format(len(tvars)))
     for var in tvars:
-        tf.logging.info("  name = %s, shape = %s%s", var.name, var.shape,
-                        init_string)
+        tf.logging.info("  name = %s, shape = %s", var.name, var.shape)
 
     output_spec = None
     if mode == tf.estimator.ModeKeys.TRAIN:
