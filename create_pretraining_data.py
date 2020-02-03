@@ -305,7 +305,7 @@ def create_training_instances(input_files, tokenizer, max_seq_length,
     for document_index in train_indices:
       instances.extend(
           create_instances_from_document(
-              all_documents, document_index, max_seq_length, short_seq_prob,
+              all_documents, document_index, max_seq_length, 1,
               masked_lm_prob, max_predictions_per_seq, vocab_words, rng, no_masking=True, all_tags=all_tags))
 
   rng.shuffle(instances)

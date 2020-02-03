@@ -8,6 +8,9 @@ import random
 
 import tensorflow as tf
 import tokenization
+from spacy.symbols import IDS
+
+import spacy
 
 '''
 Combine ner dataset for training:
@@ -30,16 +33,56 @@ flags.DEFINE_string("vocab_file", None,
                     "The vocabulary file that the BERT model was trained on.")
 
 
-def convert_text_to_features(text, max_seq_length, max_predictions_per_seq, tokenizer):
+def infer_tags(tokens, pos_tags, spacy_tokens):
+    '''
+    Greedy assign spacy inferred POS tags to wordpiece token
+    :param tokens:
+    :param pos_tags:
+    :param spacy_tokens:
+    :return:
+    '''
+    tags = []
+    num_token = len(tokens)
+    num_tags = len(pos_tags)
+    i = 0
+    j = 0
+    tok_cnt = 0
+    spacy_tok_cnt = 0
+    while i < num_token:
+        tok = tokens[i].lower()
+        if '##' in tok:
+            tok = tok[2:]
+        spacy_tok = spacy_tokens[j].lower()
+        tags.append(IDS[pos_tags[j]])
+        tok_cnt += len(tok)
+        new_spacy_tok_cnt = spacy_tok_cnt + len(spacy_tok)
+        if tok_cnt >= new_spacy_tok_cnt:
+            j += 1
+            if j >= num_tags:
+                j = num_tags - 1
+            spacy_tok_cnt = new_spacy_tok_cnt
+        i += 1
+
+    return tags
+
+
+def convert_text_to_features(nlp, text, max_seq_length, max_predictions_per_seq, tokenizer):
+    doc = nlp(text)
+    pos = [token.pos_ for token in doc]
+    txt = [token.text for token in doc]
+
     tokens = tokenizer.tokenize(text)
+    tags_ids = infer_tags(tokens, pos, txt)
     if len(tokens) > max_seq_length - 2:
         tokens = tokens[0:max_seq_length-2]
+        tags_ids = tags_ids[0:max_seq_length-2]
     tokens.insert(0, "[CLS]")
+    tags_ids.insert(0, -1)
     tokens.append("[SEP]")
+    tags_ids.append(-1)
     input_ids = tokenizer.convert_tokens_to_ids(tokens)
     input_mask = [1] * len(input_ids)
     segment_ids = [0] * len(input_ids)
-    tags_ids = [-1] * len(input_ids)
     assert len(input_ids) <= max_seq_length
 
     while len(input_ids) < max_seq_length:
@@ -85,10 +128,12 @@ def main(_):
     total_written = 0
     writer = tf.python_io.TFRecordWriter(FLAGS.output_file)
     inst_index = -1
+
+    nlp = spacy.load("en_core_web_sm")
     with open(FLAGS.input_file, 'r') as fin:
         for line in fin:
             total_written += 1
-            features = convert_text_to_features(line[:-1], 128, 20, tokenizer)
+            features = convert_text_to_features(nlp, line[:-1], 128, 20, tokenizer)
             tf_example = tf.train.Example(features=tf.train.Features(feature=features))
             writer.write(tf_example.SerializeToString())
             inst_index += 1
