@@ -81,7 +81,7 @@ def create_float_feature(values):
 
 def main(_):
     tokenizer = tokenization.FullTokenizer(
-        vocab_file=FLAGS.vocab_file, do_lower_case=FLAGS.do_lower_case)
+        vocab_file=FLAGS.vocab_file, do_lower_case=True)
     total_written = 0
     writer = tf.python_io.TFRecordWriter(FLAGS.output_file)
     inst_index = -1
