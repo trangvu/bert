@@ -390,6 +390,22 @@ def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate
       tf.logging.info("  name = %s, shape = %s%s", var.name, var.shape,
                       init_string)
 
+    tf.logging.info("**** Freeze transformer layers ****")
+    trainable_collection = tf.get_collection_ref(tf.GraphKeys.TRAINABLE_VARIABLES)
+    variables_to_remove = list()
+    for vari in trainable_collection:
+        # uses the attribute 'name' of the variable
+        if ("embeddings" not in vari.name) or ("teacher" not in vari.name):
+            variables_to_remove.append(vari)
+    for rem in variables_to_remove:
+        trainable_collection.remove(rem)
+
+    tvars = tf.trainable_variables()
+    tf.logging.info(" **** Trainable variables [{}] **** ".format(len(tvars)))
+    for var in tvars:
+        tf.logging.info("  name = %s, shape = %s%s", var.name, var.shape,
+                        init_string)
+
     output_spec = None
     if mode == tf.estimator.ModeKeys.TRAIN:
       student_train_op = optimization.create_optimizer(

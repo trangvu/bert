@@ -19,16 +19,15 @@ from __future__ import division
 from __future__ import print_function
 
 import os
-import time
-
 import modeling
 import optimization
 import tensorflow as tf
 import numpy as np
+from spacy.symbols import IDS
 
-import teacher
+
+
 import tokenization
-import gumbel
 
 flags = tf.flags
 
@@ -38,11 +37,6 @@ FLAGS = flags.FLAGS
 flags.DEFINE_string(
     "bert_config_file", None,
     "The config json file corresponding to the pre-trained BERT model. "
-    "This specifies the model architecture.")
-
-flags.DEFINE_string(
-    "teacher_config_file", None,
-    "The config json file corresponding to the teacher model. "
     "This specifies the model architecture.")
 
 flags.DEFINE_string(
@@ -67,11 +61,6 @@ flags.DEFINE_bool(
 
 flags.DEFINE_float("masked_lm_prob", 0.15, "Masked LM probability.")
 
-## Teacher parameters
-flags.DEFINE_float("teacher_update_rate", 0.33, "How often we update the teacher")
-flags.DEFINE_integer("teacher_rate_update_step", 1000, "How often we update teacher learning rate")
-flags.DEFINE_float("teacher_rate_decay", 0.963, "Decay rate for teacher update rate")
-flags.DEFINE_float("teacher_learning_rate", 5e-5, "The initial learning rate for Adam teacher.")
 
 ## Other parameters
 flags.DEFINE_string(
@@ -137,32 +126,15 @@ flags.DEFINE_integer(
     "num_tpu_cores", 8,
     "Only used if `use_tpu` is True. Total number of TPU cores to use.")
 
-def mask_special_token(probability_matrix, labels, pad_id, cls_id, sep_id):
-    shape = labels.get_shape().as_list()
-    tf.logging.info("Shape {}".format(shape))
-    # cls_mask = tf.constant(shape, cls_id)
-    # sep_mask = tf.constant(shape, sep_id)
-    # pad_mask = tf.constant(shape, pad_id)
-    cls_indexes = tf.not_equal(labels, cls_id)  # [[2] [3] [5] [6]], shape=(4, 1)
-    sep_indexes = tf.not_equal(labels, sep_id)
-    pad_indexes = tf.not_equal(labels, pad_id)
-    mask = tf.cast(tf.logical_and(tf.logical_and(cls_indexes, sep_indexes), pad_indexes), tf.float32)
-    # a = sess.run(probability_matrix)
 
-    probability_matrix = probability_matrix * mask
-
-
-    # b = sess.run(probability_matrix)
-        # [[[1 2 3], [2 2 3], [0 0 0], [0 0 0]]
-        #  [[2 2 2], [2 2 2], [2 2 2], [0 0 0]]]))
-    return probability_matrix
-
-def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate,
+def model_fn_builder(bert_config, init_checkpoint, learning_rate,
                      num_train_steps, num_warmup_steps, use_tpu,
-                     use_one_hot_embeddings, vocab_size, pad_id, cls_id, sep_id, mask_id,
-                     max_predictions_per_seq,
-                     teacher_learning_rate, teacher_update_rate, teacher_rate_update_step, teacher_rate_decay):
+                     use_one_hot_embeddings, mask_strategy, vocab_size, pad_id, cls_id, sep_id, mask_id, max_predictions_per_seq):
   """Returns `model_fn` closure for TPUEstimator."""
+
+  if mask_strategy == 'pos':
+    PREFER_TAGS = ['ADJ', 'VERB', 'NOUN', 'PRON', 'ADV']
+    PREFER_TAG_IDS = [IDS[tag] for tag in PREFER_TAGS]
 
   def model_fn(features, labels, mode, params):  # pylint: disable=unused-argument
     """The `model_fn` for TPUEstimator."""
@@ -182,12 +154,23 @@ def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate
 
     is_training = (mode == tf.estimator.ModeKeys.TRAIN)
 
-    def apply_random_masking(input_ids, input_mask, masked_lm_ids, masked_lm_positions, tag_ids):
+
+    def apply_masking(input_ids, input_mask, masked_lm_ids, masked_lm_positions, tag_ids):
 
         shape = input_ids.shape
-        probs = np.full(shape, 1)
-        probs = np.where(np.logical_not(np.logical_or(np.logical_or(np.equal(input_ids, sep_id), np.equal(input_ids, cls_id)), np.equal(input_ids, pad_id))), probs, 0)
-        probs = probs/ probs.sum(axis=1,keepdims=1)
+        if mask_strategy == 'random':
+            probs = np.full(shape, 1)
+            probs = np.where(np.logical_not(np.logical_or(np.logical_or(np.equal(input_ids, sep_id), np.equal(input_ids, cls_id)), np.equal(input_ids, pad_id))), probs, 0)
+            probs = probs/ probs.sum(axis=1,keepdims=1)
+
+        elif mask_strategy == 'pos':
+            probs = np.full(shape, 1)
+            probs = np.where(np.isin(tag_ids, PREFER_TAG_IDS), probs, 5)
+            probs = np.where(np.logical_not(
+                np.logical_or(np.logical_or(np.equal(input_ids, sep_id), np.equal(input_ids, cls_id)),
+                              np.equal(input_ids, pad_id))), probs, 0)
+            probs = probs / probs.sum(axis=1, keepdims=1)
+
 
         seq_len = np.shape(probs)[1]
         masked_lm_ids = []
@@ -218,52 +201,6 @@ def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate
             input_id[mask_ids[random_indices]] = random_ids
 
             if len(mask_ids) < max_predictions_per_seq:
-                # print("WARNING less than k")
-                # padding if we have less than k
-                num_pad = max_predictions_per_seq - len(mask_ids)
-                mask_ids = np.pad(mask_ids, (0, num_pad), 'constant', constant_values=(0, 0))
-                label_ids = np.pad(label_ids, (0, num_pad), 'constant', constant_values=(0, 0))
-                masked_lm_weight = np.pad(masked_lm_weight, (0, num_pad), constant_values=(0.0, 0.0))
-            masked_lm_ids.append(label_ids)
-            masked_lm_positions.append(mask_ids)
-            masked_lm_weights.append(masked_lm_weight)
-
-        masked_lm_ids = np.asarray(masked_lm_ids)
-        masked_lm_positions = np.asarray(masked_lm_positions, dtype='int32')
-        masked_lm_weights = np.asarray(masked_lm_weights, dtype='float32')
-
-        return (input_ids, input_mask, masked_lm_ids, masked_lm_positions, masked_lm_weights, tag_ids)
-
-    def apply_teacher_masking(input_ids, input_mask, samples, tag_ids):
-        # print(samples)
-        # print(samples.shape)
-        # print(logq)
-        # print(logq.shape)
-        # print(input_mask)
-        masked_lm_ids = []
-        masked_lm_positions = []
-        masked_lm_weights = []
-        samples = samples * input_mask
-        for input_id, sample in zip(input_ids, samples):
-            mask_ids = np.argwhere(sample == 1).flatten()
-            # print(mask_ids)
-            if len(mask_ids > max_predictions_per_seq):
-                mask_ids = mask_ids[:max_predictions_per_seq]
-            label_ids = input_id[mask_ids]
-            masked_lm_weight = [1.0] * len(mask_ids)
-            input_id[mask_ids] = mask_id
-
-            # 10% is KEEP and 10% is replaced with random words
-            mask_len = len(mask_ids)
-            num_keep = int(0.1 * mask_len)
-            special_indices = np.random.choice(mask_len, num_keep * 2, replace=False)
-            keep_indices = special_indices[:num_keep]
-            random_indices = special_indices[num_keep:]
-            input_id[mask_ids[keep_indices]] = label_ids[keep_indices]
-            random_ids = np.random.choice(vocab_size - 5, num_keep) + 5
-            input_id[mask_ids[random_indices]] = random_ids
-
-            if len(mask_ids) < max_predictions_per_seq:
                 print("WARNING less than k")
                 #padding if we have less than k
                 num_pad = max_predictions_per_seq - len(mask_ids)
@@ -281,11 +218,41 @@ def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate
         return (input_ids, input_mask, masked_lm_ids, masked_lm_positions, masked_lm_weights, tag_ids)
 
 
+    def apply_entropy_masking(input_ids, input_mask, masked_lm_ids, masked_lm_positions, entropies):
 
-    if mode == tf.estimator.ModeKeys.TRAIN:
-        teacher_update = tf.Variable(0.5)
-        coin_toss = tf.random.uniform([])
+        shape = input_ids.shape
 
+        seq_len = shape[1]
+        masked_lm_ids = []
+        masked_lm_positions = []
+        masked_lm_weights = []
+        #TODO: exclude CLS and SEP
+        for input_id, entropy in zip(input_ids, entropies):
+            mask_ids = np.argpartition(entropy,-max_predictions_per_seq)[-max_predictions_per_seq:]
+            label_ids = input_id[mask_ids]
+            masked_lm_weight = [1.0] * len(mask_ids)
+            input_id[mask_ids] = mask_id
+
+            # 10% is KEEP and 10% is replaced with random words
+            num_keep = int(0.1 * max_predictions_per_seq)
+            special_indices = np.random.choice(max_predictions_per_seq, num_keep * 2, replace=False)
+            keep_indices = special_indices[:num_keep]
+            random_indices = special_indices[num_keep:]
+            input_id[mask_ids[keep_indices]] = label_ids[keep_indices]
+            random_ids = np.random.choice(vocab_size - 5, num_keep) + 5
+            input_id[mask_ids[random_indices]] = random_ids
+            masked_lm_ids.append(label_ids)
+            masked_lm_positions.append(mask_ids)
+            masked_lm_weights.append(masked_lm_weight)
+
+        masked_lm_ids = np.asarray(masked_lm_ids)
+        masked_lm_positions = np.asarray(masked_lm_positions, dtype='int32')
+        masked_lm_weights = np.asarray(masked_lm_weights, dtype='float32')
+
+
+        return (input_ids, input_mask, masked_lm_ids, masked_lm_positions, masked_lm_weights)
+
+    if mask_strategy == 'entropy':
         ent_model = modeling.BertModel(
             config=bert_config,
             is_training=is_training,
@@ -293,35 +260,26 @@ def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate
             input_mask=raw_input_mask,
             token_type_ids=segment_ids,
             use_one_hot_embeddings=use_one_hot_embeddings)
+        masked_lm_log_probs = get_entropy_output(
+        bert_config, ent_model.get_sequence_output(), ent_model.get_embedding_table())
+        input_ids, input_mask, masked_lm_ids, masked_lm_positions, masked_lm_weights = tf.py_func(
+            apply_entropy_masking,
+            [raw_input_ids, raw_input_mask, raw_masked_lm_ids, raw_masked_lm_positions, masked_lm_log_probs],
+            (tf.int32, tf.int32, tf.int32, tf.int32, tf.float32))
+        input_ids.set_shape(raw_input_ids.get_shape())
+        input_mask.set_shape(raw_input_mask.get_shape())
+        masked_lm_ids.set_shape(raw_masked_lm_ids.get_shape())
+        masked_lm_positions.set_shape(raw_masked_lm_positions.get_shape())
+        masked_lm_weights.set_shape(raw_masked_lm_positions.get_shape())
+    else:
+        input_ids, input_mask, masked_lm_ids, masked_lm_positions, masked_lm_weights, tag_ids = tf.py_func(apply_masking,
+                    [raw_input_ids, raw_input_mask, raw_masked_lm_ids, raw_masked_lm_positions, raw_tag_ids], (tf.int32,tf.int32,tf.int32,tf.int32, tf.float32,tf.int32))
+        input_ids.set_shape(raw_input_ids.get_shape())
+        input_mask.set_shape(raw_input_mask.get_shape())
+        masked_lm_ids.set_shape(raw_masked_lm_ids.get_shape())
+        masked_lm_positions.set_shape(raw_masked_lm_positions.get_shape())
+        masked_lm_weights.set_shape(raw_masked_lm_positions.get_shape())
 
-        input_states = ent_model.get_sequence_output()
-        input_states = tf.stop_gradient(input_states)
-
-        teacher_model = teacher.TeacherModel(
-            config=teacher_config,
-            is_training=is_training,
-            input_states=input_states,
-            input_mask=raw_input_mask
-        )
-
-        samples, log_q = tf.cond(coin_toss < teacher_update,
-                                 lambda : sample_masking_subset(raw_input_mask, teacher_model.get_action_probs(), max_predictions_per_seq),
-                                 lambda: argmax_subset(raw_input_mask, teacher_model.get_action_probs(), max_predictions_per_seq))
-
-        input_ids, input_mask, masked_lm_ids, masked_lm_positions, masked_lm_weights, tag_ids = tf.py_func(
-            apply_teacher_masking,
-            [raw_input_ids, raw_input_mask, samples, raw_tag_ids],
-            (tf.int32, tf.int32, tf.int32, tf.int32, tf.float32, tf.int32))
-    elif mode == tf.estimator.ModeKeys.EVAL:
-        input_ids, input_mask, masked_lm_ids, masked_lm_positions, masked_lm_weights, tag_ids = tf.py_func(
-            apply_random_masking,
-            [raw_input_ids, raw_input_mask, raw_masked_lm_ids, raw_masked_lm_positions, raw_tag_ids],
-            (tf.int32, tf.int32, tf.int32, tf.int32, tf.float32, tf.int32))
-
-    input_ids.set_shape(raw_input_ids.get_shape())
-    input_mask.set_shape(raw_input_mask.get_shape())
-    masked_lm_ids.set_shape(raw_masked_lm_ids.get_shape())
-    masked_lm_positions.set_shape(raw_masked_lm_positions.get_shape())
     model = modeling.BertModel(
         config=bert_config,
         is_training=is_training,
@@ -339,32 +297,8 @@ def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate
     #  next_sentence_log_probs) = get_next_sentence_output(
     #      bert_config, model.get_pooled_output(), next_sentence_labels)
 
-    total_loss = masked_lm_loss # + next_sentence_loss
-    student_loss = total_loss
-    teacher_loss = None
-    if mode == tf.estimator.ModeKeys.TRAIN:
-        # teacher update rate
-        def compute_teacher_loss():
-            # Update teacher
-            # Reward is student loss
-            # Baseline is the mean of reward (but we only have 1 sample)
-            # masked_lm_example_loss
-            shape = teacher.get_shape_list(masked_lm_ids, expected_rank=2)
-            batch_size = shape[0]
-            seq_len = shape[1]
-            student_per_example_loss = tf.reshape(masked_lm_example_loss, [batch_size, seq_len])
-            reward = tf.reduce_mean(student_per_example_loss, 1)
-            reward = tf.stop_gradient(reward)
-            baseline = tf.reduce_mean(reward, -1)
-            baseline = tf.Print(baseline, [baseline], "Baseline: ")
-            reward = tf.Print(reward, [reward], "Reward: ")
-            reward = tf.abs(reward - baseline)
-            teacher_loss = tf.reduce_mean(- log_q * reward)
-            return teacher_loss
+    total_loss = masked_lm_loss #+ next_sentence_loss
 
-        teacher_loss = tf.cond(coin_toss < teacher_update, lambda: compute_teacher_loss(), lambda: tf.constant(0.0))
-        teacher_loss = tf.Print(teacher_loss, [teacher_loss], 'Teacher loss: ')
-        total_loss = student_loss + teacher_loss
     tvars = tf.trainable_variables()
 
     initialized_variable_names = {}
@@ -390,29 +324,35 @@ def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate
       tf.logging.info("  name = %s, shape = %s%s", var.name, var.shape,
                       init_string)
 
+    tf.logging.info("**** Freeze transformer layers ****")
+    trainable_collection = tf.get_collection_ref(tf.GraphKeys.TRAINABLE_VARIABLES)
+    variables_to_remove = list()
+    for vari in trainable_collection:
+        # uses the attribute 'name' of the variable
+        if "embeddings" not in vari.name:
+            variables_to_remove.append(vari)
+    for rem in variables_to_remove:
+        trainable_collection.remove(rem)
+
+    tvars = tf.trainable_variables()
+    tf.logging.info(" **** Trainable variables [{}] **** ".format(len(tvars)))
+    for var in tvars:
+        tf.logging.info("  name = %s, shape = %s%s", var.name, var.shape,
+                        init_string)
+
     output_spec = None
     if mode == tf.estimator.ModeKeys.TRAIN:
-      student_train_op = optimization.create_optimizer(
-          student_loss, learning_rate, num_train_steps, num_warmup_steps, use_tpu)
-      teacher_train_op = optimization.create_optimizer(
-          teacher_loss, teacher_learning_rate, num_train_steps, num_warmup_steps, use_tpu)
+      train_op = optimization.create_optimizer(
+          total_loss, learning_rate, num_train_steps, num_warmup_steps, use_tpu)
 
-      train_op = tf.cond(coin_toss < teacher_update,
-                         lambda: tf.group(student_train_op, teacher_train_op),
-                         lambda: student_train_op)
-
-      logging_hook = tf.train.LoggingTensorHook({"loss": total_loss,
-                                                'teacher_loss': teacher_loss,
-                                                 'student_loss': student_loss},
-                                every_n_iter=10)
-      update_rate_hook = teacher.TeacherUpdateRateHook(teacher_update_rate, teacher_rate_update_step, teacher_rate_decay, teacher_update)
+      logging_hook = tf.train.LoggingTensorHook({"loss": total_loss}, every_n_iter=10)
 
       output_spec = tf.contrib.tpu.TPUEstimatorSpec(
           mode=mode,
           loss=total_loss,
           train_op=train_op,
           scaffold_fn=scaffold_fn,
-          training_hooks = [logging_hook, update_rate_hook])
+          training_hooks = [logging_hook])
     elif mode == tf.estimator.ModeKeys.EVAL:
 
       def metric_fn(masked_lm_example_loss, masked_lm_log_probs, masked_lm_ids,
@@ -431,7 +371,6 @@ def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate
             weights=masked_lm_weights)
         masked_lm_mean_loss = tf.metrics.mean(
             values=masked_lm_example_loss, weights=masked_lm_weights)
-
         return {
             "masked_lm_accuracy": masked_lm_accuracy,
             "masked_lm_loss": masked_lm_mean_loss
@@ -453,156 +392,7 @@ def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate
 
   return model_fn
 
-def argmax_subset(input_mask, output_weights, max_predictions_per_seq):
-    output_weights = tf.cast(input_mask, dtype=tf.float32) * output_weights
-    # output_weights = tf.clip_by_value(output_weights, 1e-20, 1.0)
-    # logp = tf.log(output_weights)
-    threshold = tf.expand_dims(tf.math.top_k(output_weights, k = max_predictions_per_seq).values[:,-1],-1) * tf.ones_like(input_mask, dtype=tf.float32)
-
-    samples = tf.where(output_weights < threshold, \
-              tf.zeros_like(input_mask, dtype=tf.int32), tf.ones_like(input_mask, dtype=tf.int32))
-    log_q = tf.zeros_like(input_mask, dtype=tf.float32)
-    return samples, log_q
-
-def sample_masking_subset(raw_input_mask, action_probs, max_predictions_per_seq):
-    logZ, log_prob = calculate_partition_table(raw_input_mask, action_probs,
-                                               max_predictions_per_seq)
-    samples, log_q = sampling_a_subset(raw_input_mask, logZ, log_prob, max_predictions_per_seq)
-    return samples, log_q
-
-def calculate_partition_table(input_mask, output_weights, max_predictions_per_seq):
-    shape = teacher.get_shape_list(output_weights, expected_rank=2)
-    seq_len = shape[1]
-
-    with tf.variable_scope("teacher/dp"):
-        '''
-        Calculate DP table: aims to calculate logZ[0,K]
-        # We add an extra row so that when we calculate log_q_yes, we don't have out of bound error
-        # Z[b,N+1,k] = log 0 - we do not allow to choose anything
-        # logZ size batch_size x N+1 x K+1
-        '''
-        initZ = tf.TensorArray(tf.float32, size=max_predictions_per_seq+1)
-        logZ_0 = tf.zeros_like(input_mask, dtype = tf.float32) #size b x N
-        logZ_0 = tf.pad(logZ_0,[[0,0],[0,1]], "CONSTANT") #size b x N+1
-        initZ = initZ.write(tf.constant(0), logZ_0)
-
-        # mask logp
-        output_weights = tf.cast(input_mask,dtype=tf.float32) * output_weights
-        output_weights = tf.clip_by_value(output_weights,1e-20,1.0)
-        # normalize pi_i = pi_i / (1 - pi_i)
-        logp = tf.log(output_weights)
-        # logp = tf.log(tf.clip_by_value(output_weights,1e-20,1.0)) - tf.log(tf.clip_by_value(1 - output_weights,1e-20,1.0))
-        accum_logp = tf.cumsum(logp, axis=1, reverse=True)
-        # init_value = tf.ones_like(tf.squeeze(logp[:,-1]), dtype=tf.float32) * tf.log(1e-20)
-
-        def accum_cond(j, logZ_j, logb, loga):
-            return tf.greater(j, -1)
-
-        def accum_body(j, logZ_j, logb, loga):
-            logb_j = tf.squeeze(logb[:, j])
-            log_one_minus_p_j = tf.log(1 - tf.exp(logb_j))
-            loga = loga + log_one_minus_p_j
-            next_logZ_j = tf.math.reduce_logsumexp(tf.stack([loga, logb_j]), 0)
-            logZ_j = logZ_j.write(j, next_logZ_j)
-            return [tf.subtract(j, 1), logZ_j, logb, next_logZ_j]
-
-        def dp_loop_cond(k, logZ, lastZ):
-            return tf.less(k, max_predictions_per_seq + 1)
-
-        def dp_body(k, logZ, lastZ):
-            '''
-            case j < N-k + 1:
-              logZ[j,k] = log_sum(logZ[j+1,k], logp(j) + logZ[j+1,k-1])
-            case j = N-k + 1
-              logZ[j,k] = accum_logp[j]
-            case j > N-k + 1
-              logZ[j,k] = 0
-            '''
-
-            # shift lastZ one step
-            shifted_lastZ = tf.roll(lastZ[:, :-1], shift=1, axis=1)
-            log_yes = logp + shifted_lastZ  # b x N
-            logZ_j = tf.TensorArray(tf.float32, size=seq_len + 1)
-            # minus 1 because of the last token is [SEP]
-            init_value = accum_logp[:,seq_len - k - 1]
-            logZ_j = logZ_j.write(seq_len - k - 1, init_value)
-            _, logZ_j, logb, loga = tf.while_loop(accum_cond, accum_body, [seq_len - k - 2, logZ_j, log_yes, init_value])
-            logZ_j = logZ_j.stack()  # N x b
-            logZ_j = tf.transpose(logZ_j, [1, 0])  # b x N
-            logZ = logZ.write(k, logZ_j)
-            return [tf.add(k, 1), logZ, logZ_j]
-        k = tf.constant(1)
-        _, logZ, lastZ= tf.while_loop(dp_loop_cond, dp_body,
-                        [k, initZ, logZ_0],
-                        shape_invariants=[k.get_shape(), tf.TensorShape([]),
-                                          tf.TensorShape([None,None])])
-        logZ = logZ.stack() # N x b x N
-        logZ = tf.transpose(logZ, [1,2,0])
-    return logZ, logp
-
-def sampling_a_subset(input_mask, logZ, logp, max_predictions_per_seq):
-    shape = teacher.get_shape_list(logp, expected_rank=2)
-    seq_len = shape[1]
-
-    def gather_z_indexes(sequence_tensor, positions):
-        """Gathers the vectors at the specific positions over a minibatch."""
-        # set negative indices to zeros
-        mask = tf.zeros_like(positions, dtype=tf.int32)
-        masked_position = tf.reduce_max(tf.stack([positions, mask]), 0)
-
-        index = tf.reshape(tf.cast(tf.where(tf.equal(mask,0)),dtype=tf.int32), [-1])
-        flat_offsets = index * (max_predictions_per_seq + 1)
-        flat_positions = masked_position + flat_offsets
-        flat_sequence_tensor = tf.reshape(sequence_tensor, [-1])
-        output_tensor = tf.gather(flat_sequence_tensor, flat_positions)
-        return output_tensor
-
-    def sampling_loop_cond(j, subset, count, left, log_q):
-        # j < N and left > 0
-        # we want to exclude last tokens, because it's always a special token [SEP]
-        return tf.logical_or(tf.less(j,  seq_len), tf.greater(tf.reduce_sum(left),0))
-
-    def sampling_body(j, subset, count, left, log_q):
-        # calculate log_q_yes and log_q_no
-        logp_j = logp[:,j]
-        log_Z_total = gather_z_indexes(logZ[:, j, :], left) # b
-        log_Z_yes = gather_z_indexes(logZ[:, j+1, :], left - 1) # b
-        log_q_yes = logp_j + log_Z_yes - log_Z_total
-        log_q_no = tf.log(tf.clip_by_value(1 - tf.exp(log_q_yes),1e-20,1.0))
-        # draw 2 Gumbel noise and compute action by argmax
-        logits = tf.transpose(tf.stack([log_q_no, log_q_yes]),[1,0])
-        actions = gumbel.gumbel_softmax(logits)
-        action_mask = tf.cast(tf.argmax(actions, 1), dtype=tf.int32)
-        no_left_mask = tf.where(tf.greater(left,0), tf.ones_like(left, dtype=tf.int32), tf.zeros_like(left, dtype=tf.int32))
-        output = action_mask * no_left_mask
-        actions = tf.reduce_max(actions, 1)
-        log_actions = tf.log(actions)
-        # compute log_q_j and update count and subset
-        count = count + output
-        left = left - output
-        log_q = log_q + log_actions
-        subset = subset.write(j, output)
-
-        return [tf.add(j,1), subset, count, left, log_q]
-
-    with tf.variable_scope("teacher/sampling"):
-        # Batch sampling
-        subset = tf.TensorArray(tf.int32, size=seq_len)
-        count = tf.zeros_like(logp[:,0], dtype = tf.dtypes.int32)
-        left = tf.ones_like(logp[:,0], dtype = tf.dtypes.int32)
-        left = left * max_predictions_per_seq
-        log_q = tf.zeros_like(count, dtype=tf.dtypes.float32)
-
-        _, subset, count, left, log_q = tf.while_loop(sampling_loop_cond, sampling_body, [tf.constant(0), subset, count, left, log_q])
-
-        subset = subset.stack()  # K x b x N
-        subset = tf.transpose(subset, [1, 0])
-        partition = logZ[:,0, -1]
-        log_q = log_q - partition
-    return subset, log_q
-
-
-def get_masked_lm_output(bert_config, input_tensor, output_weights, positions,
+def get_masked_lm_logits(bert_config, input_tensor, output_weights, positions,
                          label_ids, label_weights):
   """Get loss and log probs for the masked LM."""
   input_tensor = gather_indexes(input_tensor, positions)
@@ -611,6 +401,78 @@ def get_masked_lm_output(bert_config, input_tensor, output_weights, positions,
     # We apply one more non-linear transformation before the output layer.
     # This matrix is not used after pre-training.
     with tf.variable_scope("transform"):
+      input_tensor = tf.layers.dense(
+          input_tensor,
+          units=bert_config.embedding_size,
+          activation=modeling.get_activation(bert_config.hidden_act),
+          kernel_initializer=modeling.create_initializer(
+              bert_config.initializer_range))
+      input_tensor = modeling.layer_norm(input_tensor)
+
+    # The output weights are the same as the input embeddings, but there is
+    # an output-only bias for each token.
+    output_bias = tf.get_variable(
+        "output_bias",
+        shape=[bert_config.vocab_size],
+        initializer=tf.zeros_initializer())
+    logits = tf.matmul(input_tensor, output_weights, transpose_b=True)
+    logits = tf.nn.bias_add(logits, output_bias)
+    log_probs = tf.nn.log_softmax(logits, axis=-1)
+
+    label_ids = tf.reshape(label_ids, [-1])
+    label_weights = tf.reshape(label_weights, [-1])
+
+    one_hot_labels = tf.one_hot(
+        label_ids, depth=bert_config.vocab_size, dtype=tf.float32)
+
+    # The `positions` tensor might be zero-padded (if the sequence is too
+    # short to have the maximum number of predictions). The `label_weights`
+    # tensor has a value of 1.0 for every real prediction and 0.0 for the
+    # padding predictions.
+    per_example_loss = -tf.reduce_sum(log_probs * one_hot_labels, axis=[-1])
+    numerator = tf.reduce_sum(label_weights * per_example_loss)
+    denominator = tf.reduce_sum(label_weights) + 1e-5
+    loss = numerator / denominator
+
+  return (loss, per_example_loss, log_probs)
+
+def get_entropy_output(bert_config, input_tensor, output_weights):
+
+    with tf.variable_scope("cls/predictions",reuse=tf.AUTO_REUSE):
+        # We apply one more non-linear transformation before the output layer.
+        # This matrix is not used after pre-training.
+        with tf.variable_scope("transform",reuse=tf.AUTO_REUSE):
+            input_tensor = tf.layers.dense(
+                input_tensor,
+                units=bert_config.embedding_size,
+                activation=modeling.get_activation(bert_config.hidden_act),
+                kernel_initializer=modeling.create_initializer(
+                    bert_config.initializer_range))
+            input_tensor = modeling.layer_norm(input_tensor)
+
+        # The output weights are the same as the input embeddings, but there is
+        # an output-only bias for each token.
+        output_bias = tf.get_variable(
+            "output_bias",
+            shape=[bert_config.vocab_size],
+            initializer=tf.zeros_initializer())
+        logits = tf.matmul(input_tensor, output_weights, transpose_b=True)
+        logits = tf.nn.bias_add(logits, output_bias)
+        probs = tf.nn.softmax(logits, axis=-1)
+        entropy = -tf.reduce_sum(probs * tf.log(probs), [2])
+
+    return entropy
+
+
+def get_masked_lm_output(bert_config, input_tensor, output_weights, positions,
+                         label_ids, label_weights):
+  """Get loss and log probs for the masked LM."""
+  input_tensor = gather_indexes(input_tensor, positions)
+
+  with tf.variable_scope("cls/predictions", reuse=tf.AUTO_REUSE):
+    # We apply one more non-linear transformation before the output layer.
+    # This matrix is not used after pre-training.
+    with tf.variable_scope("transform", reuse=tf.AUTO_REUSE):
       input_tensor = tf.layers.dense(
           input_tensor,
           units=bert_config.embedding_size,
@@ -750,7 +612,6 @@ def input_fn_builder(input_files,
     params['pad_id'] = pad_id
     params['cls_id'] = cls_id
     params['sep_id'] = sep_id
-    params['seq_len']= max_seq_length
     d = d.apply(
         tf.contrib.data.map_and_batch(
             lambda record: _decode_record(record, name_to_features, params),
@@ -766,15 +627,6 @@ def _decode_record(record, name_to_features, params):
   """Decodes a record to a TensorFlow example."""
   example = tf.parse_single_example(record, name_to_features)
 
-  #mask CLS, SEP
-  cls_id = params['cls_id']
-  sep_id = params['sep_id']
-  seq_len = params['seq_len']
-  input_mask = example['input_mask']
-  input_ids = example['input_ids']
-  mask = tf.zeros([seq_len], dtype=input_mask.dtype)
-  input_mask = tf.where(tf.logical_not(tf.logical_or(tf.equal(input_ids, sep_id), tf.equal(input_ids, cls_id))), input_mask, mask)
-  example['input_mask'] = input_mask
   # tf.Example only supports tf.int64, but the TPU only supports tf.int32.
   # So cast all int64 to int32.
   for name in list(example.keys()):
@@ -793,7 +645,6 @@ def main(_):
     raise ValueError("At least one of `do_train` or `do_eval` must be True.")
 
   bert_config = modeling.BertConfig.from_json_file(FLAGS.bert_config_file)
-  teacher_config = teacher.TeacherConfig.from_json_file(FLAGS.teacher_config_file)
   vocab_size = bert_config.vocab_size
 
   tf.gfile.MakeDirs(FLAGS.output_dir)
@@ -817,8 +668,7 @@ def main(_):
       master=FLAGS.master,
       model_dir=FLAGS.output_dir,
       save_checkpoints_steps=FLAGS.save_checkpoints_steps,
-      log_step_count_steps=10,
-      session_config=tf.ConfigProto(log_device_placement=False),
+      # session_config=tf.ConfigProto(log_device_placement=True),
       tpu_config=tf.contrib.tpu.TPUConfig(
           iterations_per_loop=FLAGS.iterations_per_loop,
           num_shards=FLAGS.num_tpu_cores,
@@ -834,23 +684,19 @@ def main(_):
 
   model_fn = model_fn_builder(
       bert_config=bert_config,
-      teacher_config=teacher_config,
       init_checkpoint=FLAGS.init_checkpoint,
       learning_rate=FLAGS.learning_rate,
       num_train_steps=FLAGS.num_train_steps,
       num_warmup_steps=FLAGS.num_warmup_steps,
       use_tpu=FLAGS.use_tpu,
       use_one_hot_embeddings=FLAGS.use_tpu,
+      mask_strategy=FLAGS.mask_strategy,
       vocab_size=vocab_size,
       pad_id = pad_id,
       sep_id = sep_id,
       cls_id = cls_id,
       max_predictions_per_seq=FLAGS.max_predictions_per_seq,
-      mask_id = mask_id,
-      teacher_learning_rate = FLAGS.teacher_learning_rate,
-      teacher_update_rate = FLAGS.teacher_update_rate,
-      teacher_rate_update_step = FLAGS.teacher_rate_update_step,
-      teacher_rate_decay = FLAGS.teacher_rate_decay
+      mask_id = mask_id
   )
 
   # If TPU is not available, this will fall back to normal Estimator on CPU
