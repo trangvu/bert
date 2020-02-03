@@ -264,7 +264,7 @@ def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate
             input_id[mask_ids[random_indices]] = random_ids
 
             if len(mask_ids) < max_predictions_per_seq:
-                print("WARNING less than k")
+                # print("WARNING less than k")
                 #padding if we have less than k
                 num_pad = max_predictions_per_seq - len(mask_ids)
                 mask_ids = np.pad(mask_ids, (0, num_pad), 'constant', constant_values=(0,0))
@@ -344,7 +344,7 @@ def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate
     teacher_loss = None
     if mode == tf.estimator.ModeKeys.TRAIN:
         # teacher update rate
-        def compute_teacher_loss():
+        def compute_teacher_loss(log_q):
             # Update teacher
             # Reward is student loss
             # Baseline is the mean of reward (but we only have 1 sample)
@@ -359,10 +359,12 @@ def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate
             baseline = tf.Print(baseline, [baseline], "Baseline: ")
             reward = tf.Print(reward, [reward], "Reward: ")
             reward = tf.abs(reward - baseline)
+            reward = tf.Print(reward, [reward], "abs Reward: ")
+            log_q = tf.Print(log_q, [log_q], "log_q: ")
             teacher_loss = tf.reduce_mean(- log_q * reward)
             return teacher_loss
 
-        teacher_loss = tf.cond(coin_toss < teacher_update, lambda: compute_teacher_loss(), lambda: tf.constant(0.0))
+        teacher_loss = tf.cond(coin_toss < teacher_update, lambda: compute_teacher_loss(log_q), lambda: tf.constant(0.0))
         teacher_loss = tf.Print(teacher_loss, [teacher_loss], 'Teacher loss: ')
         total_loss = student_loss + teacher_loss
     tvars = tf.trainable_variables()
