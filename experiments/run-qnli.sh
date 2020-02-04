@@ -18,7 +18,7 @@ TRAINING_EPOCHS=3
 MODEL_NAME="bert_model.ckpt"
 OUTPUT=$OUT_DIR/$TASK_NAME
 VOCAB_FILE=$SRC_PATH'/config/en_uncase_vocab.txt'
-CONFIG_FILE=$SRC_PATH'/config/small_bert_config.json'
+CONFIG_FILE=$SRC_PATH'/config/base_bert_config.json'
 
 
 set -x

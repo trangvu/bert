@@ -12,7 +12,7 @@ mkdir -p $OUTPUT_DIR
 echo "Evaluate $1 $2 on GLUE"
 set -x
 EVAL_RESULT=$RUN_NAME','$TASK_NAME
-for (( index=1; index<=10; index+=1 )); do
+for (( index=1; index<=1; index+=1 )); do
   echo "RUN ${index}"
   OUTPUT_DIR_RUN=$OUTPUT_DIR"/run-${index}"
   bash ../$TASK_SCRIPT $MODEL_DIR $EXP_NAME $OUTPUT_DIR_RUN
