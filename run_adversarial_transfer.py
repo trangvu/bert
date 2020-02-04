@@ -264,7 +264,7 @@ def model_fn_builder(bert_config, teacher_config, init_checkpoint, learning_rate
             input_id[mask_ids[random_indices]] = random_ids
 
             if len(mask_ids) < max_predictions_per_seq:
-                # print("WARNING less than k")
+                print("WARNING less than k. len = {}".format(len(mask_ids)))
                 #padding if we have less than k
                 num_pad = max_predictions_per_seq - len(mask_ids)
                 mask_ids = np.pad(mask_ids, (0, num_pad), 'constant', constant_values=(0,0))

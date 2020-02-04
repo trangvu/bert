@@ -3,7 +3,7 @@
 ROOT_DIR=`cd ../.. &&pwd`
 DATE=`date '+%Y%m%d-%H%M%S'`
 SRC_PATH=$ROOT_DIR'/bert'
-DATA_DIR=$ROOT_DIR'/data/glue_sim_50_50'
+DATA_DIR=$ROOT_DIR'/data/glue_sim_75_25'
 
 module load python/3.6.2
 module load cuda/10.0
