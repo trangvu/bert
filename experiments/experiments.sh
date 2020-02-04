@@ -119,6 +119,12 @@ python create-training-data.py --input_file=/home/gholamrh/da33/trang/masked-lm/
 
 python3 run_adversarial_transfer.py --input_file=/home/xvuthith/da33_scratch/trang/masked-lm/train/wikidump-vi-128/train-00.tfrecord --output_dir=/home/xvuthith/da33_scratch/trang/masked-lm/models/cross-lingual-adv-vi --do_train=True --do_eval=True --do_lower_case --bert_config_file=/home/xvuthith/da33_scratch/trang/masked-lm/bert/config/base_bert_config.json --teacher_config_file=/home/xvuthith/da33_scratch/trang/masked-lm/bert/config/base_teacher_config.json --train_batch_size=32 --max_seq_length=128 --max_predictions_per_seq=20 --num_train_steps=500000 --num_warmup_steps=50000 --learning_rate=5e-5 --vocab_file=/home/xvuthith/da33_scratch/trang/masked-lm/bert/config/vi_uncase_vocab.txt --teacher_update_rate=0.7 --teacher_rate_update_step=5000 --teacher_rate_decay=0.963 --teacher_learning_rate=5e-5 --init_checkpoint=/home/xvuthith/da33_scratch/trang/masked-lm/models/bert_base_uncased/bert_model.ckpt
 
-    sbatch --job-name=glue-rand-50 submit-job-m3g-V100.sh adapt-rand.sh 50_50
-    sbatch --job-name=glue-entropy-50 submit-job-m3g-V100.sh adapt-entropy.sh 50_50
-    sbatch --job-name=glue-adv-50 submit-job-m3g-V100.sh adapt-adv.sh 50_50
+    sbatch --job-name=glue-rand-50 --time=1-00:00:00 submit-job-m3g-V100.sh adapt-rand.sh 50_50
+    sbatch --job-name=glue-pos-50 --time=1-00:00:00 submit-job-m3g-V100.sh adapt-pos.sh 50_50
+    sbatch --job-name=glue-entropy-50 --time=1-00:00:00 submit-job-m3g-V100.sh adapt-entropy.sh 50_50
+    sbatch --job-name=glue-adv-50 --time=1-00:00:00 submit-job-m3g-V100.sh adapt-adv.sh 50_50
+
+    sbatch --job-name=glue-rand-75 --time=1-00:00:00 submit-job-rqtp.sh adapt-rand.sh 75_25
+    sbatch --job-name=glue-pos-75 --time=1-00:00:00 submit-job-rqtp.sh adapt-pos.sh 75_25
+    sbatch --job-name=glue-entropy-75 --time=1-00:00:00 submit-job-rqtp.sh adapt-entropy.sh 75_25
+    sbatch --job-name=glue-adv-75 --time=1-00:00:00 submit-job-rqtp.sh adapt-adv.sh 75_25
