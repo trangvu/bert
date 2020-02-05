@@ -34,8 +34,8 @@ cd $SRC_PATH && python3 run_pretraining.py \
 --train_batch_size=32 \
 --max_seq_length=128 \
 --max_predictions_per_seq=20 \
---num_train_steps=13000 \
---num_warmup_steps=100 \
+--num_train_steps=3700 \
+--num_warmup_steps=300 \
 --learning_rate=5e-5 \
 --vocab_file=$VOCAB_FILE \
 --init_checkpoint=$BERT_BASE_DIR \
