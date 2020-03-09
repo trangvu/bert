@@ -40,7 +40,7 @@ cd $SRC_PATH && python3 run_adversarial_pretraining.py \
 --learning_rate=5e-4 \
 --vocab_file=$VOCAB_FILE \
 --teacher_update_rate=0.3 \
---teacher_rate_update_step=1000 \
+--teacher_rate_update_step=10000 \
 --teacher_rate_decay=0.963 \
---teacher_learning_rate=5e-5 \
+--teacher_learning_rate=1e-4 \
 $PARAMS
