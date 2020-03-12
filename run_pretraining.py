@@ -74,6 +74,10 @@ flags.DEFINE_integer(
     "than this will be padded. Must match data generation.")
 
 flags.DEFINE_integer(
+    "seed", 128,
+    "Seed")
+
+flags.DEFINE_integer(
     "max_predictions_per_seq", 20,
     "Maximum number of masked LM predictions per sequence. "
     "Must match data generation.")
@@ -302,19 +306,10 @@ def model_fn_builder(bert_config, init_checkpoint, learning_rate,
     tvars = tf.trainable_variables()
 
     initialized_variable_names = {}
-    scaffold_fn = None
     if init_checkpoint:
       (assignment_map, initialized_variable_names
       ) = modeling.get_assignment_map_from_checkpoint(tvars, init_checkpoint)
-      if use_tpu:
-
-        def tpu_scaffold():
-          tf.train.init_from_checkpoint(init_checkpoint, assignment_map)
-          return tf.train.Scaffold()
-
-        scaffold_fn = tpu_scaffold
-      else:
-        tf.train.init_from_checkpoint(init_checkpoint, assignment_map)
+      tf.train.init_from_checkpoint(init_checkpoint, assignment_map)
 
     tf.logging.info("**** Trainable Variables ****")
     for var in tvars:
@@ -331,17 +326,12 @@ def model_fn_builder(bert_config, init_checkpoint, learning_rate,
 
       logging_hook = tf.train.LoggingTensorHook({"loss": total_loss}, every_n_iter=10)
 
-      output_spec = tf.contrib.tpu.TPUEstimatorSpec(
+      output_spec = tf.estimator.EstimatorSpec(
           mode=mode,
           loss=total_loss,
           train_op=train_op,
-          scaffold_fn=scaffold_fn,
           training_hooks = [logging_hook])
     elif mode == tf.estimator.ModeKeys.EVAL:
-
-      def metric_fn(masked_lm_example_loss, masked_lm_log_probs, masked_lm_ids,
-                    masked_lm_weights):
-        """Computes the loss and accuracy of the model."""
         masked_lm_log_probs = tf.reshape(masked_lm_log_probs,
                                          [-1, masked_lm_log_probs.shape[-1]])
         masked_lm_predictions = tf.argmax(
@@ -355,20 +345,14 @@ def model_fn_builder(bert_config, init_checkpoint, learning_rate,
             weights=masked_lm_weights)
         masked_lm_mean_loss = tf.metrics.mean(
             values=masked_lm_example_loss, weights=masked_lm_weights)
-        return {
+        eval_metric_op = {
             "masked_lm_accuracy": masked_lm_accuracy,
             "masked_lm_loss": masked_lm_mean_loss
-        }
-
-      eval_metrics = (metric_fn, [
-          masked_lm_example_loss, masked_lm_log_probs, masked_lm_ids,
-          masked_lm_weights
-      ])
-      output_spec = tf.contrib.tpu.TPUEstimatorSpec(
+            }
+        output_spec = tf.estimator.EstimatorSpec(
           mode=mode,
           loss=total_loss,
-          eval_metrics=eval_metrics,
-          scaffold_fn=scaffold_fn)
+          eval_metric_ops=eval_metric_op)
     else:
       raise ValueError("Only TRAIN and EVAL modes are supported: %s" % (mode))
 
@@ -632,7 +616,7 @@ def main(_):
   vocab_size = bert_config.vocab_size
 
   tf.gfile.MakeDirs(FLAGS.output_dir)
-
+  tf.logging.info("Num GPUs Available: {}".format(len(tf.config.experimental.list_physical_devices('GPU'))))
   input_files = []
   for input_pattern in FLAGS.input_file.split(","):
     input_files.extend(tf.gfile.Glob(input_pattern))
@@ -641,22 +625,15 @@ def main(_):
   for input_file in input_files:
     tf.logging.info("  %s" % input_file)
 
-  tpu_cluster_resolver = None
-  if FLAGS.use_tpu and FLAGS.tpu_name:
-    tpu_cluster_resolver = tf.contrib.cluster_resolver.TPUClusterResolver(
-        FLAGS.tpu_name, zone=FLAGS.tpu_zone, project=FLAGS.gcp_project)
-
-  is_per_host = tf.contrib.tpu.InputPipelineConfig.PER_HOST_V2
-  run_config = tf.contrib.tpu.RunConfig(
-      cluster=tpu_cluster_resolver,
-      master=FLAGS.master,
+  run_config = tf.estimator.RunConfig(
       model_dir=FLAGS.output_dir,
       save_checkpoints_steps=FLAGS.save_checkpoints_steps,
+      # save_checkpoints_secs=3600,
+      tf_random_seed=FLAGS.seed,
       # session_config=tf.ConfigProto(log_device_placement=True),
-      tpu_config=tf.contrib.tpu.TPUConfig(
-          iterations_per_loop=FLAGS.iterations_per_loop,
-          num_shards=FLAGS.num_tpu_cores,
-          per_host_input_for_training=is_per_host))
+      log_step_count_steps = 100,
+      keep_checkpoint_max=0
+  )
 
   tokenizer = tokenization.FullTokenizer(
       vocab_file=FLAGS.vocab_file, do_lower_case=FLAGS.do_lower_case)
@@ -683,18 +660,15 @@ def main(_):
       mask_id = mask_id
   )
 
-  # If TPU is not available, this will fall back to normal Estimator on CPU
-  # or GPU.
-  estimator = tf.contrib.tpu.TPUEstimator(
-      use_tpu=FLAGS.use_tpu,
-      model_fn=model_fn,
-      config=run_config,
-      train_batch_size=FLAGS.train_batch_size,
-      eval_batch_size=FLAGS.eval_batch_size)
 
   if FLAGS.do_train:
     tf.logging.info("***** Running training *****")
     tf.logging.info("  Batch size = %d", FLAGS.train_batch_size)
+    estimator = tf.estimator.Estimator(
+        model_fn=model_fn,
+        config=run_config,
+        params={'batch_size': FLAGS.train_batch_size}
+    )
     train_input_fn = input_fn_builder(
         input_files=input_files,
         max_seq_length=FLAGS.max_seq_length,
@@ -710,7 +684,11 @@ def main(_):
   if FLAGS.do_eval:
     tf.logging.info("***** Running evaluation *****")
     tf.logging.info("  Batch size = %d", FLAGS.eval_batch_size)
-
+    estimator = tf.estimator.Estimator(
+        model_fn=model_fn,
+        config=run_config,
+        params={'batch_size': FLAGS.eval_batch_size}
+    )
     eval_input_fn = input_fn_builder(
         input_files=input_files,
         max_seq_length=FLAGS.max_seq_length,
