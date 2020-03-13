@@ -616,21 +616,15 @@ def main(_):
     tokenizer = tokenization.FullTokenizer(
         vocab_file=FLAGS.vocab_file, do_lower_case=FLAGS.do_lower_case)
 
-    tpu_cluster_resolver = None
-    if FLAGS.use_tpu and FLAGS.tpu_name:
-        tpu_cluster_resolver = tf.contrib.cluster_resolver.TPUClusterResolver(
-            FLAGS.tpu_name, zone=FLAGS.tpu_zone, project=FLAGS.gcp_project)
-
-    is_per_host = tf.contrib.tpu.InputPipelineConfig.PER_HOST_V2
-    run_config = tf.contrib.tpu.RunConfig(
-        cluster=tpu_cluster_resolver,
-        master=FLAGS.master,
+    run_config = tf.estimator.RunConfig(
         model_dir=FLAGS.output_dir,
         save_checkpoints_steps=FLAGS.save_checkpoints_steps,
-        tpu_config=tf.contrib.tpu.TPUConfig(
-            iterations_per_loop=FLAGS.iterations_per_loop,
-            num_shards=FLAGS.num_tpu_cores,
-            per_host_input_for_training=is_per_host))
+        # save_checkpoints_secs=3600,
+        tf_random_seed=FLAGS.seed,
+        # session_config=tf.ConfigProto(log_device_placement=True),
+        log_step_count_steps=100,
+        keep_checkpoint_max=0
+    )
 
     train_examples = None
     num_train_steps = None
@@ -640,6 +634,10 @@ def main(_):
         num_train_steps = int(
             len(train_examples) / FLAGS.train_batch_size * FLAGS.num_train_epochs)
         num_warmup_steps = int(num_train_steps * FLAGS.warmup_proportion)
+        eval_examples = processor.get_dev_examples(FLAGS.data_dir)
+        eval_file = os.path.join(FLAGS.output_dir, "eval.tf_record")
+        eval_features = convert_examples_to_features(
+            eval_examples, label_list, FLAGS.max_seq_length, tokenizer)
 
     model_fn = model_fn_builder(
         bert_config=bert_config,
@@ -650,15 +648,6 @@ def main(_):
         use_tpu=FLAGS.use_tpu,
         use_one_hot_embeddings=FLAGS.use_tpu)
 
-    # If TPU is not available, this will fall back to normal Estimator on CPU
-    # or GPU.
-    estimator = tf.contrib.tpu.TPUEstimator(
-        use_tpu=FLAGS.use_tpu,
-        model_fn=model_fn,
-        config=run_config,
-        train_batch_size=FLAGS.train_batch_size,
-        eval_batch_size=FLAGS.eval_batch_size)
-
     if FLAGS.do_train:
         import time
         train_t0 = time.time()
@@ -668,12 +657,26 @@ def main(_):
         tf.logging.info("  Num examples = %d", len(train_examples))
         tf.logging.info("  Batch size = %d", FLAGS.train_batch_size)
         tf.logging.info("  Num steps = %d", num_train_steps)
+
+        estimator = tf.estimator.Estimator(
+            model_fn=model_fn,
+            config=run_config,
+            params={'batch_size': FLAGS.train_batch_size}
+        )
         train_input_fn = input_fn_builder(
             features=train_features,
             seq_length=FLAGS.max_seq_length,
             is_training=True,
             drop_remainder=True)
-        estimator.train(input_fn=train_input_fn, max_steps=num_train_steps)
+        eval_input_fn = input_fn_builder(
+            features=eval_features,
+            seq_length=FLAGS.max_seq_length,
+            is_training=False,
+            drop_remainder=True)
+
+        train_spec = tf.estimator.TrainSpec(input_fn=train_input_fn, max_steps=num_train_steps)
+        eval_spec = tf.estimator.EvalSpec(input_fn=eval_input_fn, steps=FLAGS.eval_steps)
+        tf.estimator.train_and_evaluate(estimator, train_spec, eval_spec)
         train_t1 = time.time()
 
     if FLAGS.do_eval:
@@ -684,6 +687,12 @@ def main(_):
         tf.logging.info("***** Running evaluation *****")
         tf.logging.info("  Num examples = %d", len(eval_examples))
         tf.logging.info("  Batch size = %d", FLAGS.eval_batch_size)
+
+        estimator = tf.estimator.Estimator(
+            model_fn=model_fn,
+            config=run_config,
+            params={'batch_size': FLAGS.eval_batch_size}
+        )
 
         # This tells the estimator to run through the entire set.
         eval_steps = None
@@ -734,6 +743,12 @@ def main(_):
             seq_length=FLAGS.max_seq_length,
             is_training=False,
             drop_remainder=test_drop_remainder)
+
+        estimator = tf.estimator.Estimator(
+            model_fn=model_fn,
+            config=run_config,
+            params={'batch_size': FLAGS.eval_batch_size}
+        )
 
         result = estimator.evaluate(input_fn=test_input_fn, steps=test_steps)
 

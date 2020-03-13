@@ -1337,6 +1337,12 @@ def main(_):
     # This tells the estimator to run through the entire set.
     eval_steps = None
 
+    estimator = tf.estimator.Estimator(
+        model_fn=model_fn,
+        config=run_config,
+        params={'batch_size': FLAGS.eval_batch_size}
+    )
+
     eval_drop_remainder = True if FLAGS.use_tpu else False
     eval_input_fn = file_based_input_fn_builder(
         input_file=eval_file,
@@ -1363,11 +1369,11 @@ def main(_):
     tf.logging.info("***** Running prediction*****")
     tf.logging.info("  Num examples = %d", len(predict_examples))
     tf.logging.info("  Batch size = %d", FLAGS.predict_batch_size)
-
-    if FLAGS.use_tpu:
-      # Warning: According to tpu_estimator.py Prediction on TPU is an
-      # experimental feature and hence not supported here
-      raise ValueError("Prediction in TPU not supported")
+    estimator = tf.estimator.Estimator(
+        model_fn=model_fn,
+        config=run_config,
+        params={'batch_size': FLAGS.eval_batch_size}
+    )
 
     predict_drop_remainder = True if FLAGS.use_tpu else False
     predict_input_fn = file_based_input_fn_builder(
