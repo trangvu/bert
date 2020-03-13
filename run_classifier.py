@@ -57,6 +57,10 @@ flags.DEFINE_string(
     "init_checkpoint", None,
     "Initial checkpoint (usually from a pre-trained BERT model).")
 
+flags.DEFINE_integer(
+    "seed", 128,
+    "Seed")
+
 flags.DEFINE_bool(
     "do_lower_case", True,
     "Whether to lower case the input text. Should be True for uncased "
@@ -124,6 +128,9 @@ flags.DEFINE_integer(
     "num_tpu_cores", 8,
     "Only used if `use_tpu` is True. Total number of TPU cores to use.")
 
+flags.DEFINE_integer(
+    "eval_steps", 100,
+    "Evaluate model every num steps")
 
 flags.DEFINE_bool(
     "freeze_embedding", False,
@@ -1085,32 +1092,27 @@ def model_fn_builder(bert_config, num_labels, init_checkpoint, learning_rate,
           total_loss, learning_rate, num_train_steps, num_warmup_steps, use_tpu)
       logging_hook = tf.train.LoggingTensorHook({"loss": total_loss, }, every_n_iter=10)
 
-      output_spec = tf.contrib.tpu.TPUEstimatorSpec(
+      output_spec = tf.estimator.EstimatorSpec(
           mode=mode,
           loss=total_loss,
           training_hooks = [logging_hook],
-          train_op=train_op,
-          scaffold_fn=scaffold_fn)
+          train_op=train_op)
     elif mode == tf.estimator.ModeKeys.EVAL:
+      predictions = tf.argmax(logits, axis=-1, output_type=tf.int32)
+      accuracy = tf.metrics.accuracy(label_ids, predictions)
+      loss = tf.metrics.mean(per_example_loss)
 
-      def metric_fn(per_example_loss, label_ids, logits):
-        predictions = tf.argmax(logits, axis=-1, output_type=tf.int32)
-        accuracy = tf.metrics.accuracy(label_ids, predictions)
-        loss = tf.metrics.mean(per_example_loss)
-        return {
+      eval_metric_ops = {
             "eval_accuracy": accuracy,
             "eval_loss": loss,
         }
-
-      eval_metrics = (metric_fn, [per_example_loss, label_ids, logits])
-      output_spec = tf.contrib.tpu.TPUEstimatorSpec(
+      output_spec = tf.estimator.EstimatorSpec(
           mode=mode,
           loss=total_loss,
-          eval_metrics=eval_metrics,
-          scaffold_fn=scaffold_fn)
+          eval_metric_ops=eval_metric_ops)
     else:
-      output_spec = tf.contrib.tpu.TPUEstimatorSpec(
-          mode=mode, predictions=probabilities, scaffold_fn=scaffold_fn)
+      output_spec = tf.estimator.EstimatorSpec(
+          mode=mode, predictions=probabilities)
     return output_spec
 
   return model_fn
@@ -1248,31 +1250,30 @@ def main(_):
   tokenizer = tokenization.FullTokenizer(
       vocab_file=FLAGS.vocab_file, do_lower_case=FLAGS.do_lower_case)
 
-  tpu_cluster_resolver = None
-  if FLAGS.use_tpu and FLAGS.tpu_name:
-    tpu_cluster_resolver = tf.contrib.cluster_resolver.TPUClusterResolver(
-        FLAGS.tpu_name, zone=FLAGS.tpu_zone, project=FLAGS.gcp_project)
-
-  is_per_host = tf.contrib.tpu.InputPipelineConfig.PER_HOST_V2
-  run_config = tf.contrib.tpu.RunConfig(
-      cluster=tpu_cluster_resolver,
-      master=FLAGS.master,
-      model_dir=FLAGS.output_dir,
-      save_checkpoints_steps=FLAGS.save_checkpoints_steps,
-      session_config=tf.ConfigProto(log_device_placement=False),
-      tpu_config=tf.contrib.tpu.TPUConfig(
-          iterations_per_loop=FLAGS.iterations_per_loop,
-          num_shards=FLAGS.num_tpu_cores,
-          per_host_input_for_training=is_per_host))
+  run_config = tf.estimator.RunConfig(
+    model_dir=FLAGS.output_dir,
+    save_checkpoints_steps=FLAGS.save_checkpoints_steps,
+    # save_checkpoints_secs=3600,
+    tf_random_seed=FLAGS.seed,
+    # session_config=tf.ConfigProto(log_device_placement=True),
+    log_step_count_steps=100,
+    keep_checkpoint_max=0
+  )
 
   train_examples = None
   num_train_steps = None
   num_warmup_steps = None
+  eval_file = None
   if FLAGS.do_train:
     train_examples = processor.get_train_examples(FLAGS.data_dir)
     num_train_steps = int(
         len(train_examples) / FLAGS.train_batch_size * FLAGS.num_train_epochs)
     num_warmup_steps = int(num_train_steps * FLAGS.warmup_proportion)
+
+    eval_examples = processor.get_dev_examples(FLAGS.data_dir)
+    eval_file = os.path.join(FLAGS.output_dir, "eval.tf_record")
+    file_based_convert_examples_to_features(
+      eval_examples, label_list, FLAGS.max_seq_length, tokenizer, eval_file)
 
   model_fn = model_fn_builder(
       bert_config=bert_config,
@@ -1285,15 +1286,15 @@ def main(_):
       use_one_hot_embeddings=FLAGS.use_tpu,
       freeze_embedding=FLAGS.freeze_embedding)
 
-  # If TPU is not available, this will fall back to normal Estimator on CPU
-  # or GPU.
-  estimator = tf.contrib.tpu.TPUEstimator(
-      use_tpu=FLAGS.use_tpu,
-      model_fn=model_fn,
-      config=run_config,
-      train_batch_size=FLAGS.train_batch_size,
-      eval_batch_size=FLAGS.eval_batch_size,
-      predict_batch_size=FLAGS.predict_batch_size)
+  # # If TPU is not available, this will fall back to normal Estimator on CPU
+  # # or GPU.
+  # estimator = tf.contrib.tpu.TPUEstimator(
+  #     use_tpu=FLAGS.use_tpu,
+  #     model_fn=model_fn,
+  #     config=run_config,
+  #     train_batch_size=FLAGS.train_batch_size,
+  #     eval_batch_size=FLAGS.eval_batch_size,
+  #     predict_batch_size=FLAGS.predict_batch_size)
 
   if FLAGS.do_train:
     train_file = os.path.join(FLAGS.output_dir, "train.tf_record")
@@ -1303,12 +1304,25 @@ def main(_):
     tf.logging.info("  Num examples = %d", len(train_examples))
     tf.logging.info("  Batch size = %d", FLAGS.train_batch_size)
     tf.logging.info("  Num steps = %d", num_train_steps)
+    estimator = tf.estimator.Estimator(
+      model_fn=model_fn,
+      config=run_config,
+      params={'batch_size': FLAGS.train_batch_size}
+    )
     train_input_fn = file_based_input_fn_builder(
         input_file=train_file,
         seq_length=FLAGS.max_seq_length,
         is_training=True,
         drop_remainder=True)
-    estimator.train(input_fn=train_input_fn, max_steps=num_train_steps)
+    eval_input_fn = file_based_input_fn_builder(
+      input_file=eval_file,
+      seq_length=FLAGS.max_seq_length,
+      is_training=False,
+      drop_remainder=True)
+
+    train_spec = tf.estimator.TrainSpec(input_fn=train_input_fn, max_steps=num_train_steps)
+    eval_spec = tf.estimator.EvalSpec(input_fn=eval_input_fn, steps=FLAGS.eval_steps)
+    tf.estimator.train_and_evaluate(estimator, train_spec, eval_spec)
 
   if FLAGS.do_eval:
     eval_examples = processor.get_dev_examples(FLAGS.data_dir)
@@ -1322,12 +1336,6 @@ def main(_):
 
     # This tells the estimator to run through the entire set.
     eval_steps = None
-    # However, if running eval on the TPU, you will need to specify the
-    # number of steps.
-    if FLAGS.use_tpu:
-      # Eval will be slightly WRONG on the TPU because it will truncate
-      # the last batch.
-      eval_steps = int(len(eval_examples) / FLAGS.eval_batch_size)
 
     eval_drop_remainder = True if FLAGS.use_tpu else False
     eval_input_fn = file_based_input_fn_builder(

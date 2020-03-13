@@ -608,7 +608,6 @@ def _decode_record(record, name_to_features, params):
 
 def main(_):
   tf.logging.set_verbosity(tf.logging.INFO)
-
   if not FLAGS.do_train and not FLAGS.do_eval:
     raise ValueError("At least one of `do_train` or `do_eval` must be True.")
 
@@ -659,8 +658,6 @@ def main(_):
       max_predictions_per_seq=FLAGS.max_predictions_per_seq,
       mask_id = mask_id
   )
-
-
   if FLAGS.do_train:
     tf.logging.info("***** Running training *****")
     tf.logging.info("  Batch size = %d", FLAGS.train_batch_size)
