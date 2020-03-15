@@ -1,5 +1,5 @@
 #!/bin/bash
-EXP_NAMES=('adapt-glue-all-adv50_50' 'adapt-glue-all-entropy50_50' 'adapt-glue-all-rand50_50' 'adapt-glue-all-pos50_50' 'adapt-glue-all-adv75_25' 'adapt-glue-all-entropy75_25' 'adapt-glue-all-rand75_25' 'adapt-glue-all-pos75_25' )
+EXP_NAMES=('adapt-glue-all-rand50_50' 'adapt-glue-all-rand75_25' 'adapt-glue-all-rand100_0' )
 
 
 ROOT_DIR=`cd ../../.. &&pwd`
