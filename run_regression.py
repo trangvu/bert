@@ -482,51 +482,36 @@ def model_fn_builder(bert_config, init_checkpoint, learning_rate,
             train_op = optimization.create_optimizer(
                 total_loss, learning_rate, num_train_steps, num_warmup_steps, use_tpu)
 
-            output_spec = tf.contrib.tpu.TPUEstimatorSpec(
+            output_spec = tf.estimator.EstimatorSpec(
                 mode=mode,
                 loss=total_loss,
-                train_op=train_op,
-                scaffold_fn=scaffold_fn)
+                train_op=train_op)
         elif mode == tf.estimator.ModeKeys.EVAL:
+            # Display labels and predictions
+            concat1 = tf.contrib.metrics.streaming_concat(logits)
+            concat2 = tf.contrib.metrics.streaming_concat(label_ids)
 
-            #       def metric_fn(per_example_loss, label_ids, logits):
-            #         predictions = tf.argmax(logits, axis=-1, output_type=tf.int32)
-            #         accuracy = tf.metrics.accuracy(label_ids, predictions)
-            #         loss = tf.metrics.mean(per_example_loss)
-            #         return {
-            #             "eval_accuracy": accuracy,
-            #             "eval_loss": loss,
-            #         }
-            def metric_fn(per_example_loss, label_ids, logits):
-                # Display labels and predictions
-                concat1 = tf.contrib.metrics.streaming_concat(logits)
-                concat2 = tf.contrib.metrics.streaming_concat(label_ids)
+            # Compute Pearson correlation
+            pearson = tf.contrib.metrics.streaming_pearson_correlation(logits, label_ids)
 
-                # Compute Pearson correlation
-                pearson = tf.contrib.metrics.streaming_pearson_correlation(logits, label_ids)
+            # Compute MSE
+            # mse = tf.metrics.mean(per_example_loss)
+            mse = tf.metrics.mean_squared_error(label_ids, logits)
 
-                # Compute MSE
-                # mse = tf.metrics.mean(per_example_loss)
-                mse = tf.metrics.mean_squared_error(label_ids, logits)
-
-                # Compute Spearman correlation
-                size = tf.size(logits)
-                indice_of_ranks_pred = tf.nn.top_k(logits, k=size)[1]
-                indice_of_ranks_label = tf.nn.top_k(label_ids, k=size)[1]
-                rank_pred = tf.nn.top_k(-indice_of_ranks_pred, k=size)[1]
-                rank_label = tf.nn.top_k(-indice_of_ranks_label, k=size)[1]
-                rank_pred = tf.to_float(rank_pred)
-                rank_label = tf.to_float(rank_label)
-                spearman = tf.contrib.metrics.streaming_pearson_correlation(rank_pred, rank_label)
-
-                return {'pred': concat1, 'label_ids': concat2, 'pearson': pearson, 'spearman': spearman, 'MSE': mse}
-
-            eval_metrics = (metric_fn, [per_example_loss, label_ids, logits])
-            output_spec = tf.contrib.tpu.TPUEstimatorSpec(
+            # Compute Spearman correlation
+            size = tf.size(logits)
+            indice_of_ranks_pred = tf.nn.top_k(logits, k=size)[1]
+            indice_of_ranks_label = tf.nn.top_k(label_ids, k=size)[1]
+            rank_pred = tf.nn.top_k(-indice_of_ranks_pred, k=size)[1]
+            rank_label = tf.nn.top_k(-indice_of_ranks_label, k=size)[1]
+            rank_pred = tf.to_float(rank_pred)
+            rank_label = tf.to_float(rank_label)
+            spearman = tf.contrib.metrics.streaming_pearson_correlation(rank_pred, rank_label)
+            eval_metrics = {'pred': concat1, 'label_ids': concat2, 'pearson': pearson, 'spearman': spearman, 'MSE': mse}
+            output_spec = tf.estimator.EstimatorSpec(
                 mode=mode,
                 loss=total_loss,
-                eval_metrics=eval_metrics,
-                scaffold_fn=scaffold_fn)
+                eval_metric_ops=eval_metrics)
         else:
             raise ValueError("Only TRAIN and EVAL modes are supported: %s" % (mode))
 
