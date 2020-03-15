@@ -13,7 +13,7 @@ TASKS=(CoLA	"SST-2" MRPC "STS-B" QQP MNLI QNLI RTE WNLI)
 set -x
 TASK_NAME=${TASKS[$TASK_IDX]}
 TASK_SCRIPT=${TASK_SCRIPTS[$TASK_IDX]}
-for (( EXP_IDX=0; EXP_IDX<=7; EXP_IDX+=1 )); do
+for (( EXP_IDX=0; EXP_IDX<=2; EXP_IDX+=1 )); do
     EXP_NAME=${EXP_NAMES[$EXP_IDX]}
     echo "Evaluate $EXP_NAME on $TASK_NAME"
     MODEL_DIR='/scratch/da33/trang/masked-lm/models/'$EXP_NAME
