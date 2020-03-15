@@ -52,6 +52,10 @@ flags.DEFINE_string(
 
 ## Other parameters
 
+flags.DEFINE_integer(
+    "seed", 128,
+    "Seed")
+
 flags.DEFINE_string(
     "init_checkpoint", None,
     "Initial checkpoint (usually from a pre-trained BERT model).")
