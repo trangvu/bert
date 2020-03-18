@@ -33,4 +33,4 @@ cd $SRC_PATH && python3 build_pretraining_dataset.py \
     --max-seq-length=128 \
     --num-processes=12 \
     --blanks-separate-docs=True \
-    --do-lower-case=True
+    --do-lower-case

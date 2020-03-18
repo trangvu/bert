@@ -180,6 +180,7 @@ class ExampleWriter(object):
                 i, num_out_files))
         self._writers.append(tf.io.TFRecordWriter(output_fname))
     self.n_written = 0
+    self.job_id = job_id
 
   def write_examples(self, input_file):
     """Writes out examples from the provided input file."""
@@ -197,6 +198,8 @@ class ExampleWriter(object):
         self._writers[self.n_written % len(self._writers)].write(
             example.SerializeToString())
         self.n_written += 1
+        if self.n_written % 10000 == 0:
+            print("Job {} just wrote {}-th example".format(self.job_id, self.n_written))
 
   def finish(self):
     for writer in self._writers:
