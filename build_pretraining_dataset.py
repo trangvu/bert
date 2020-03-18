@@ -218,7 +218,8 @@ def write_examples(job_id, args):
       max_seq_length=args.max_seq_length,
       num_jobs=args.num_processes,
       blanks_separate_docs=args.blanks_separate_docs,
-      do_lower_case=args.do_lower_case
+      do_lower_case=args.do_lower_case,
+      num_out_files=args.num_out_files
   )
   log("Writing tf examples")
   fnames = sorted(tf.io.gfile.listdir(args.corpus_dir))
@@ -257,6 +258,8 @@ def main():
                       action='store_true', help="Lower case input text.")
   parser.add_argument("--no-lower-case", dest='do_lower_case',
                       action='store_false', help="Don't lower case input text.")
+  parser.add_argument("--num-out-files", default=1000, type=int,
+                      help="Num of output files")
   parser.set_defaults(do_lower_case=True)
   args = parser.parse_args()
 

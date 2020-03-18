@@ -1,11 +1,12 @@
 #!/bin/bash
 
-MODEL_DIR='/scratch/da33/trang/masked-lm/models/bert_base_uncased/bert_model.ckpt'
-OUTPUT_DIR='/scratch/da33/trang/masked-lm/results/bert_base_uncased/glue'
-SUBMIT_DIR=$OUTPUT_DIR'/'$EXP_NAME'submission'
+EXP_NAME=$1
+MODEL_DIR=$2
+OUTPUT_DIR=$3
+SUBMIT_DIR=$OUTPUT_DIR'/'$EXP_NAME'_submission'
 mkdir -p $SUBMIT_DIR
 for (( index=0; index<=8; index+=1 )); do
-    ./run-single-glue.sh $index $MODEL_DIR glue $OUTPUT_DIR
+    run-single-glue.sh $index $MODEL_DIR $EXP_NAME $OUTPUT_DIR
 done
 
 echo "Collect results to $SUBMIT_DIR"

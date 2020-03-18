@@ -95,3 +95,10 @@ def flatten_dict(d, delim="_"):
     else:
       flattened[k] = v
   return flattened
+
+def get_available_gpus():
+  from tensorflow.python.client import device_lib
+  gpus = [x.name for x in device_lib.list_local_devices() if x.device_type == 'GPU']
+  if len(gpus) == 0: return ["/cpu:0"]
+  tf.logging.info('Availble GPUs: {}'.format(', '.join(gpus)))
+  return gpus

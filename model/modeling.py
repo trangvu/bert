@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Google AI Language Team Authors.
+# Copyright 2020 The Google Research Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,7 +12,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""The main BERT model and related functions."""
+
+"""The transformer encoder used by ELECTRA. Essentially BERT's with a few
+additional functionalities added.
+"""
 
 from __future__ import absolute_import
 from __future__ import division
@@ -23,13 +26,15 @@ import copy
 import json
 import math
 import re
+
 import numpy as np
 import six
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
+from tensorflow.contrib import layers as contrib_layers
 
 
 class BertConfig(object):
-  """Configuration for `BertModel`."""
+  """Configuration for `BertModel` (ELECTRA uses the same model as BERT)."""
 
   def __init__(self,
                vocab_size,
@@ -41,9 +46,8 @@ class BertConfig(object):
                hidden_dropout_prob=0.1,
                attention_probs_dropout_prob=0.1,
                max_position_embeddings=512,
-               type_vocab_size=16,
-               initializer_range=0.02,
-               embedding_size=768):
+               type_vocab_size=2,
+               initializer_range=0.02):
     """Constructs BertConfig.
 
     Args:
@@ -79,7 +83,6 @@ class BertConfig(object):
     self.max_position_embeddings = max_position_embeddings
     self.type_vocab_size = type_vocab_size
     self.initializer_range = initializer_range
-    self.embedding_size = embedding_size
 
   @classmethod
   def from_dict(cls, json_object):
@@ -92,7 +95,7 @@ class BertConfig(object):
   @classmethod
   def from_json_file(cls, json_file):
     """Constructs a `BertConfig` from a json file of parameters."""
-    with tf.gfile.GFile(json_file, "r") as reader:
+    with tf.io.gfile.GFile(json_file, "r") as reader:
       text = reader.read()
     return cls.from_dict(json.loads(text))
 
@@ -107,7 +110,8 @@ class BertConfig(object):
 
 
 class BertModel(object):
-  """BERT model ("Bidirectional Encoder Representations from Transformers").
+  """BERT model. Although the training algorithm is different, the transformer
+  model for ELECTRA is the same as BERT's.
 
   Example usage:
 
@@ -131,117 +135,123 @@ class BertModel(object):
   """
 
   def __init__(self,
-               config,
+               bert_config,
                is_training,
                input_ids,
                input_mask=None,
                token_type_ids=None,
-               use_one_hot_embeddings=False,
-               scope=None):
+               use_one_hot_embeddings=True,
+               scope=None,
+               embedding_size=None,
+               input_embeddings=None,
+               input_reprs=None,
+               update_embeddings=True,
+               untied_embeddings=False):
     """Constructor for BertModel.
 
     Args:
-      config: `BertConfig` instance.
+      bert_config: `BertConfig` instance.
       is_training: bool. true for training model, false for eval model. Controls
         whether dropout will be applied.
       input_ids: int32 Tensor of shape [batch_size, seq_length].
       input_mask: (optional) int32 Tensor of shape [batch_size, seq_length].
       token_type_ids: (optional) int32 Tensor of shape [batch_size, seq_length].
       use_one_hot_embeddings: (optional) bool. Whether to use one-hot word
-        embeddings or tf.embedding_lookup() for the word embeddings.
-      scope: (optional) variable scope. Defaults to "bert".
+        embeddings or tf.embedding_lookup() for the word embeddings. On the TPU,
+        it is much faster if this is True, on the CPU or GPU, it is faster if
+        this is False.
+      scope: (optional) variable scope. Defaults to "electra".
 
     Raises:
       ValueError: The config is invalid or one of the input tensor shapes
         is invalid.
     """
-    config = copy.deepcopy(config)
+    bert_config = copy.deepcopy(bert_config)
     if not is_training:
-      config.hidden_dropout_prob = 0.0
-      config.attention_probs_dropout_prob = 0.0
+      bert_config.hidden_dropout_prob = 0.0
+      bert_config.attention_probs_dropout_prob = 0.0
 
-    input_shape = get_shape_list(input_ids, expected_rank=2)
+    input_shape = get_shape_list(token_type_ids, expected_rank=2)
     batch_size = input_shape[0]
     seq_length = input_shape[1]
 
     if input_mask is None:
       input_mask = tf.ones(shape=[batch_size, seq_length], dtype=tf.int32)
 
-    if token_type_ids is None:
-      token_type_ids = tf.zeros(shape=[batch_size, seq_length], dtype=tf.int32)
-    if scope is None:
-        scope = "bert"
-    with tf.variable_scope(scope,reuse=tf.AUTO_REUSE):
-      with tf.variable_scope("embeddings",reuse=tf.AUTO_REUSE):
-        # Perform embedding lookup on the word ids.
-        (self.embedding_output, self.embedding_table) = embedding_lookup(
-            input_ids=input_ids,
-            vocab_size=config.vocab_size,
-            embedding_size=config.embedding_size,
-            initializer_range=config.initializer_range,
-            word_embedding_name="word_embeddings",
-            use_one_hot_embeddings=use_one_hot_embeddings)
+    assert token_type_ids is not None
 
+    if input_reprs is None:
+      if input_embeddings is None:
+        with tf.variable_scope(
+            (scope if untied_embeddings else "electra") + "/embeddings",
+            reuse=tf.AUTO_REUSE):
+          # Perform embedding lookup on the word ids
+          if embedding_size is None:
+            embedding_size = bert_config.hidden_size
+          (self.token_embeddings, self.embedding_table) = embedding_lookup(
+              input_ids=input_ids,
+              vocab_size=bert_config.vocab_size,
+              embedding_size=embedding_size,
+              initializer_range=bert_config.initializer_range,
+              word_embedding_name="word_embeddings",
+              use_one_hot_embeddings=use_one_hot_embeddings)
+      else:
+        self.token_embeddings = input_embeddings
+
+      with tf.variable_scope(
+          (scope if untied_embeddings else "electra") + "/embeddings",
+          reuse=tf.AUTO_REUSE):
         # Add positional embeddings and token type embeddings, then layer
         # normalize and perform dropout.
         self.embedding_output = embedding_postprocessor(
-            input_tensor=self.embedding_output,
+            input_tensor=self.token_embeddings,
             use_token_type=True,
             token_type_ids=token_type_ids,
-            token_type_vocab_size=config.type_vocab_size,
+            token_type_vocab_size=bert_config.type_vocab_size,
             token_type_embedding_name="token_type_embeddings",
             use_position_embeddings=True,
             position_embedding_name="position_embeddings",
-            initializer_range=config.initializer_range,
-            max_position_embeddings=config.max_position_embeddings,
-            dropout_prob=config.hidden_dropout_prob)
-      with tf.variable_scope("embeddings/transform", reuse=tf.AUTO_REUSE):
-        if config.embedding_size != config.hidden_size:
-            self.embedding_output = tf.layers.dense(
-                self.embedding_output,
-                units=config.hidden_size,
-                activation=get_activation(config.hidden_act),
-                kernel_initializer=create_initializer(
-                    config.initializer_range))
-            self.embedding_output = layer_norm(self.embedding_output)
+            initializer_range=bert_config.initializer_range,
+            max_position_embeddings=bert_config.max_position_embeddings,
+            dropout_prob=bert_config.hidden_dropout_prob)
+    else:
+      self.embedding_output = input_reprs
+    if not update_embeddings:
+      self.embedding_output = tf.stop_gradient(self.embedding_output)
 
-      with tf.variable_scope("encoder",reuse=tf.AUTO_REUSE):
+    with tf.variable_scope(scope, default_name="electra"):
+      if self.embedding_output.shape[-1] != bert_config.hidden_size:
+        self.embedding_output = tf.layers.dense(
+            self.embedding_output, bert_config.hidden_size,
+            name="embeddings_project")
+
+      with tf.variable_scope("encoder"):
         # This converts a 2D mask of shape [batch_size, seq_length] to a 3D
         # mask of shape [batch_size, seq_length, seq_length] which is used
         # for the attention scores.
         attention_mask = create_attention_mask_from_input_mask(
-            input_ids, input_mask)
+            token_type_ids, input_mask)
 
-        # Run the stacked transformer.
-        # `sequence_output` shape = [batch_size, seq_length, hidden_size].
-        self.all_encoder_layers = transformer_model(
+        # Run the stacked transformer. Output shapes
+        # sequence_output: [batch_size, seq_length, hidden_size]
+        # pooled_output: [batch_size, hidden_size]
+        # all_encoder_layers: [n_layers, batch_size, seq_length, hidden_size].
+        # attn_maps: [n_layers, batch_size, n_heads, seq_length, seq_length]
+        (self.all_layer_outputs, self.attn_maps) = transformer_model(
             input_tensor=self.embedding_output,
             attention_mask=attention_mask,
-            hidden_size=config.hidden_size,
-            num_hidden_layers=config.num_hidden_layers,
-            num_attention_heads=config.num_attention_heads,
-            intermediate_size=config.intermediate_size,
-            intermediate_act_fn=get_activation(config.hidden_act),
-            hidden_dropout_prob=config.hidden_dropout_prob,
-            attention_probs_dropout_prob=config.attention_probs_dropout_prob,
-            initializer_range=config.initializer_range,
+            hidden_size=bert_config.hidden_size,
+            num_hidden_layers=bert_config.num_hidden_layers,
+            num_attention_heads=bert_config.num_attention_heads,
+            intermediate_size=bert_config.intermediate_size,
+            intermediate_act_fn=get_activation(bert_config.hidden_act),
+            hidden_dropout_prob=bert_config.hidden_dropout_prob,
+            attention_probs_dropout_prob=
+            bert_config.attention_probs_dropout_prob,
+            initializer_range=bert_config.initializer_range,
             do_return_all_layers=True)
-
-      self.sequence_output = self.all_encoder_layers[-1]
-      # The "pooler" converts the encoded sequence tensor of shape
-      # [batch_size, seq_length, hidden_size] to a tensor of shape
-      # [batch_size, hidden_size]. This is necessary for segment-level
-      # (or segment-pair-level) classification tasks where we need a fixed
-      # dimensional representation of the segment.
-      with tf.variable_scope("pooler"):
-        # We "pool" the model by simply taking the hidden state corresponding
-        # to the first token. We assume that this has been pre-trained
-        first_token_tensor = tf.squeeze(self.sequence_output[:, 0:1, :], axis=1)
-        self.pooled_output = tf.layers.dense(
-            first_token_tensor,
-            config.hidden_size,
-            activation=tf.tanh,
-            kernel_initializer=create_initializer(config.initializer_range))
+        self.sequence_output = self.all_layer_outputs[-1]
+        self.pooled_output = self.sequence_output[:, 0]
 
   def get_pooled_output(self):
     return self.pooled_output
@@ -256,7 +266,7 @@ class BertModel(object):
     return self.sequence_output
 
   def get_all_encoder_layers(self):
-    return self.all_encoder_layers
+    return self.all_layer_outputs
 
   def get_embedding_output(self):
     """Gets output of the embedding lookup (i.e., input to the transformer).
@@ -273,20 +283,20 @@ class BertModel(object):
     return self.embedding_table
 
 
-def gelu(x):
+def gelu(input_tensor):
   """Gaussian Error Linear Unit.
 
   This is a smoother version of the RELU.
   Original paper: https://arxiv.org/abs/1606.08415
+
   Args:
-    x: float Tensor to perform activation.
+    input_tensor: float Tensor to perform activation.
 
   Returns:
-    `x` with the GELU activation applied.
+    `input_tensor` with the GELU activation applied.
   """
-  cdf = 0.5 * (1.0 + tf.tanh(
-      (np.sqrt(2 / np.pi) * (x + 0.044715 * tf.pow(x, 3)))))
-  return x * cdf
+  cdf = 0.5 * (1.0 + tf.math.erf(input_tensor / tf.sqrt(2.0)))
+  return input_tensor * cdf
 
 
 def get_activation(activation_string):
@@ -326,11 +336,8 @@ def get_activation(activation_string):
     raise ValueError("Unsupported activation: %s" % act)
 
 
-def get_assignment_map_from_checkpoint(tvars, init_checkpoint):
+def get_assignment_map_from_checkpoint(tvars, init_checkpoint, prefix=""):
   """Compute the union of the current variables and checkpoint variables."""
-  assignment_map = {}
-  initialized_variable_names = {}
-
   name_to_variable = collections.OrderedDict()
   for var in tvars:
     name = var.name
@@ -339,18 +346,17 @@ def get_assignment_map_from_checkpoint(tvars, init_checkpoint):
       name = m.group(1)
     name_to_variable[name] = var
 
-  init_vars = tf.train.list_variables(init_checkpoint)
-
+  initialized_variable_names = {}
   assignment_map = collections.OrderedDict()
-  for x in init_vars:
+  for x in tf.train.list_variables(init_checkpoint):
     (name, var) = (x[0], x[1])
-    if name not in name_to_variable:
+    if prefix + name not in name_to_variable:
       continue
-    assignment_map[name] = name
+    assignment_map[name] = prefix + name
     initialized_variable_names[name] = 1
     initialized_variable_names[name + ":0"] = 1
 
-  return (assignment_map, initialized_variable_names)
+  return assignment_map, initialized_variable_names
 
 
 def dropout(input_tensor, dropout_prob):
@@ -373,7 +379,7 @@ def dropout(input_tensor, dropout_prob):
 
 def layer_norm(input_tensor, name=None):
   """Run layer normalization on the last dimension of the tensor."""
-  return tf.contrib.layers.layer_norm(
+  return contrib_layers.layer_norm(
       inputs=input_tensor, begin_norm_axis=-1, begin_params_axis=-1, scope=name)
 
 
@@ -405,7 +411,8 @@ def embedding_lookup(input_ids,
     initializer_range: float. Embedding initialization range.
     word_embedding_name: string. Name of the embedding table.
     use_one_hot_embeddings: bool. If True, use one-hot method for word
-      embeddings. If False, use `tf.gather()`.
+      embeddings. If False, use `tf.nn.embedding_lookup()`. One hot is better
+      for TPUs.
 
   Returns:
     float Tensor of shape [batch_size, seq_length, embedding_size].
@@ -415,7 +422,8 @@ def embedding_lookup(input_ids,
   #
   # If the input is a 2D tensor of shape [batch_size, seq_length], we
   # reshape to [batch_size, seq_length, 1].
-  if input_ids.shape.ndims == 2:
+  original_dims = input_ids.shape.ndims
+  if original_dims == 2:
     input_ids = tf.expand_dims(input_ids, axis=[-1])
 
   embedding_table = tf.get_variable(
@@ -423,18 +431,25 @@ def embedding_lookup(input_ids,
       shape=[vocab_size, embedding_size],
       initializer=create_initializer(initializer_range))
 
-  flat_input_ids = tf.reshape(input_ids, [-1])
-  if use_one_hot_embeddings:
-    one_hot_input_ids = tf.one_hot(flat_input_ids, depth=vocab_size)
-    output = tf.matmul(one_hot_input_ids, embedding_table)
+  if original_dims == 3:
+    input_shape = get_shape_list(input_ids)
+    tf.reshape(input_ids, [-1, input_shape[-1]])
+    output = tf.matmul(input_ids, embedding_table)
+    output = tf.reshape(output,
+                        [input_shape[0], input_shape[1], embedding_size])
   else:
-    output = tf.gather(embedding_table, flat_input_ids)
+    if use_one_hot_embeddings:
+      flat_input_ids = tf.reshape(input_ids, [-1])
+      one_hot_input_ids = tf.one_hot(flat_input_ids, depth=vocab_size)
+      output = tf.matmul(one_hot_input_ids, embedding_table)
+    else:
+      output = tf.nn.embedding_lookup(embedding_table, input_ids)
 
-  input_shape = get_shape_list(input_ids)
+    input_shape = get_shape_list(input_ids)
 
-  output = tf.reshape(output,
-                      input_shape[0:-1] + [input_shape[-1] * embedding_size])
-  return (output, embedding_table)
+    output = tf.reshape(output,
+                        input_shape[0:-1] + [input_shape[-1] * embedding_size])
+  return output, embedding_table
 
 
 def embedding_postprocessor(input_tensor,
@@ -658,7 +673,7 @@ def attention_layer(from_tensor,
     from_seq_length = from_shape[1]
     to_seq_length = to_shape[1]
   elif len(from_shape) == 2:
-    if (batch_size is None or from_seq_length is None or to_seq_length is None):
+    if batch_size is None or from_seq_length is None or to_seq_length is None:
       raise ValueError(
           "When passing in rank 2 tensors to attention_layer, the values "
           "for `batch_size`, `from_seq_length`, and `to_seq_length` "
@@ -760,7 +775,7 @@ def attention_layer(from_tensor,
         context_layer,
         [batch_size, from_seq_length, num_attention_heads * size_per_head])
 
-  return context_layer
+  return context_layer, attention_probs
 
 
 def transformer_model(input_tensor,
@@ -834,17 +849,16 @@ def transformer_model(input_tensor,
   # help the optimizer.
   prev_output = reshape_to_matrix(input_tensor)
 
+  attn_maps = []
   all_layer_outputs = []
   for layer_idx in range(num_hidden_layers):
     with tf.variable_scope("layer_%d" % layer_idx):
-      layer_input = prev_output
-
       with tf.variable_scope("attention"):
         attention_heads = []
         with tf.variable_scope("self"):
-          attention_head = attention_layer(
-              from_tensor=layer_input,
-              to_tensor=layer_input,
+          attention_head, probs = attention_layer(
+              from_tensor=prev_output,
+              to_tensor=prev_output,
               attention_mask=attention_mask,
               num_attention_heads=num_attention_heads,
               size_per_head=attention_head_size,
@@ -855,6 +869,7 @@ def transformer_model(input_tensor,
               from_seq_length=seq_length,
               to_seq_length=seq_length)
           attention_heads.append(attention_head)
+          attn_maps.append(probs)
 
         attention_output = None
         if len(attention_heads) == 1:
@@ -872,7 +887,7 @@ def transformer_model(input_tensor,
               hidden_size,
               kernel_initializer=create_initializer(initializer_range))
           attention_output = dropout(attention_output, hidden_dropout_prob)
-          attention_output = layer_norm(attention_output + layer_input)
+          attention_output = layer_norm(attention_output + prev_output)
 
       # The activation is only applied to the "intermediate" hidden layer.
       with tf.variable_scope("intermediate"):
@@ -884,24 +899,20 @@ def transformer_model(input_tensor,
 
       # Down-project back to `hidden_size` then add the residual.
       with tf.variable_scope("output"):
-        layer_output = tf.layers.dense(
+        prev_output = tf.layers.dense(
             intermediate_output,
             hidden_size,
             kernel_initializer=create_initializer(initializer_range))
-        layer_output = dropout(layer_output, hidden_dropout_prob)
-        layer_output = layer_norm(layer_output + attention_output)
-        prev_output = layer_output
-        all_layer_outputs.append(layer_output)
+        prev_output = dropout(prev_output, hidden_dropout_prob)
+        prev_output = layer_norm(prev_output + attention_output)
+        all_layer_outputs.append(prev_output)
 
+  attn_maps = tf.stack(attn_maps, 0)
   if do_return_all_layers:
-    final_outputs = []
-    for layer_output in all_layer_outputs:
-      final_output = reshape_from_matrix(layer_output, input_shape)
-      final_outputs.append(final_output)
-    return final_outputs
+    return tf.stack([reshape_from_matrix(layer, input_shape)
+                     for layer in all_layer_outputs], 0), attn_maps
   else:
-    final_output = reshape_from_matrix(prev_output, input_shape)
-    return final_output
+    return reshape_from_matrix(prev_output, input_shape), attn_maps
 
 
 def get_shape_list(tensor, expected_rank=None, name=None):
@@ -919,6 +930,14 @@ def get_shape_list(tensor, expected_rank=None, name=None):
     be returned as python integers, and dynamic dimensions will be returned
     as tf.Tensor scalars.
   """
+  if isinstance(tensor, np.ndarray) or isinstance(tensor, list):
+    shape = np.array(tensor).shape
+    if isinstance(expected_rank, six.integer_types):
+      assert len(shape) == expected_rank
+    elif expected_rank is not None:
+      assert len(shape) in expected_rank
+    return shape
+
   if name is None:
     name = tensor.name
 
