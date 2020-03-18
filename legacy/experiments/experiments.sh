@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 smux new-session --partition=m3h --time=2-00:00:00 --gres=gpu:1
 
+smux new-session --time=3-00:00:00 --ntasks=12
+
 ### Prepare data
     ## Wikibook
     ./create-non-mask-data-book-all-shard.sh 128
