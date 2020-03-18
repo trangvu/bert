@@ -193,13 +193,15 @@ class ExampleWriter(object):
             self._writers[self.n_written % len(self._writers)].write(
                 example.SerializeToString())
             self.n_written += 1
+            if self.n_written % 100 == 0:
+              print("Job {} just wrote {}-th example for file {}".format(self.job_id, self.n_written, input_file))
       example = self._example_builder.add_line("")
       if example:
         self._writers[self.n_written % len(self._writers)].write(
             example.SerializeToString())
         self.n_written += 1
-        if self.n_written % 10000 == 0:
-            print("Job {} just wrote {}-th example".format(self.job_id, self.n_written))
+        if self.n_written % 100 == 0:
+          print("Job {} just wrote {}-th example for file {}".format(self.job_id, self.n_written, input_file))
 
   def finish(self):
     for writer in self._writers:
