@@ -19,16 +19,11 @@ from __future__ import division
 from __future__ import print_function
 
 import os
-import time
 
-import modeling
-import optimization
 import tensorflow as tf
 import numpy as np
 
-import teacher
-import tokenization
-import gumbel
+from model import gumbel, modeling, optimization, tokenization, teacher
 
 flags = tf.flags
 

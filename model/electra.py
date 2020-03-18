@@ -20,13 +20,11 @@ from __future__ import print_function
 
 import collections
 import copy
-import json
 import math
 import re
 import numpy as np
 import six
 import tensorflow as tf
-from modeling import  BertConfig
 
 class ElectraGeneratorModel(object):
   """BERT model ("Bidirectional Encoder Representations from Transformers").

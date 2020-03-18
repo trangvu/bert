@@ -20,11 +20,8 @@ from __future__ import print_function
 
 import csv
 import os
-import modeling
-import optimization
-import tokenization
+from model import modeling, optimization, tokenization
 import tensorflow as tf
-import scipy
 
 flags = tf.flags
 

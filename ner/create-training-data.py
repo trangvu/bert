@@ -2,12 +2,9 @@
 Created by trangvu on 28/01/20
 '''
 import collections
-import os
-import pickle
-import random
 
 import tensorflow as tf
-import tokenization
+from model import tokenization
 from spacy.symbols import IDS
 
 import spacy

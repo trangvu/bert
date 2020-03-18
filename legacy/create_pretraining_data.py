@@ -23,10 +23,9 @@ import random
 
 from spacy.symbols import IDS
 
-import tokenization
+from model import tokenization
 import tensorflow as tf
 import spacy
-from spacy.lang.en.tag_map import TAG_MAP
 
 flags = tf.flags
 

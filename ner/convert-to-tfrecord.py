@@ -7,7 +7,7 @@ import pickle
 import random
 
 import tensorflow as tf
-import tokenization
+from model import tokenization
 
 '''
 Combine ner dataset for training:
