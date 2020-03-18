@@ -1,9 +1,9 @@
 #!/bin/bash
 #SBATCH --job-name=preprocess
-#SBATCH --ntasks=1
-#SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=12
-#SBATCH --mem-per-cpu=6000
+#SBATCH --ntasks=12
+#SBATCH --ntasks-per-node=12
+#SBATCH --cpus-per-task=1
+#SBATCH --mem-per-cpu=4096
 #SBATCH --time=3-00:00:00
 #SBATCH --mail-type=BEGIN,END,FAIL
 #SBATCH --mail-user=vuth0001@student.monash.edu
@@ -32,4 +32,4 @@ cd $SRC_PATH && build_pretraining_dataset.py \
     --max-seq-length=128 \
     --num-processes=12 \
     --blanks-separate-docs=True \
-    --do-lower-case=True
+    --do-lower-case=True 
