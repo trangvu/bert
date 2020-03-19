@@ -102,15 +102,13 @@ class AdamWeightDecayOptimizer(tf.train.Optimizer):
           shape=param.shape.as_list(),
           dtype=tf.float32,
           trainable=False,
-          initializer=tf.zeros_initializer(),
-          aggregation=tf.VariableAggregation.MEAN)
+          initializer=tf.zeros_initializer())
       v = tf.get_variable(
           name=param_name + "/adam_v",
           shape=param.shape.as_list(),
           dtype=tf.float32,
           trainable=False,
-          initializer=tf.zeros_initializer(),
-          aggregation=tf.VariableAggregation.MEAN)
+          initializer=tf.zeros_initializer())
 
       # Standard Adam update.
       next_m = (
@@ -134,10 +132,13 @@ class AdamWeightDecayOptimizer(tf.train.Optimizer):
       update_with_lr = learning_rate * update
       next_param = param - update_with_lr
 
+      def update_var(strategy, var, new_value):
+        tf.distribute.StrategyExtended.update(var, lambda v, new_v: v.assign(new_v), [new_value])
+
       assignments.extend(
-          [param.assign(next_param),
-           m.assign(next_m),
-           v.assign(next_v)])
+          [tf.distribute.get_replica_context().merge_call(update_var, [[param, next_param]]),
+           tf.distribute.get_replica_context().merge_call(update_var, [[m, next_m]]),
+           tf.distribute.get_replica_context().merge_call(update_var, [[v, next_v]])])
 
     return assignments
 
