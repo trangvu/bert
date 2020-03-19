@@ -132,13 +132,11 @@ class AdamWeightDecayOptimizer(tf.train.Optimizer):
       update_with_lr = learning_rate * update
       next_param = param - update_with_lr
 
-      def update_var(var, new_value):
-        tf.distribute.StrategyExtended.update(var, lambda v, new_v: v.assign(new_v), [new_value])
-
+      param = tf.distribute.get_replica_context().all_reduce(tf.distribute.ReduceOp.MEAN, next_param)
+      m = tf.distribute.get_replica_context().all_reduce(tf.distribute.ReduceOp.MEAN, next_m)
+      v = tf.distribute.get_replica_context().all_reduce(tf.distribute.ReduceOp.MEAN, next_v)
       assignments.extend(
-          [tf.distribute.get_replica_context().merge_call(update_var, [[param, next_param]]),
-           tf.distribute.get_replica_context().merge_call(update_var, [[m, next_m]]),
-           tf.distribute.get_replica_context().merge_call(update_var, [[v, next_v]])])
+          [param, m, v])
 
     return assignments
 
