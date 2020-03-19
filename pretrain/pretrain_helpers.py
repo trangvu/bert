@@ -204,6 +204,8 @@ def mask(config: configure_pretraining.PretrainingConfig,
       masked_lm_ids=masked_lm_ids,
       masked_lm_weights=masked_lm_weights)
       pretrain_data.print_tokens(debug_inputs, inv_vocab)
+
+      ## TODO: save to the mask choice
       return inputs_ids, masked_lm_ids, masked_lm_positions, masked_lm_weights
 
     mask_shape = masked_lm_ids.get_shape()

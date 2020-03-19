@@ -208,9 +208,14 @@ def train_or_eval(config: configure_pretraining.PretrainingConfig):
   num_gpus = utils.get_available_gpus()
   utils.log("Found {} gpus".format(len(num_gpus)))
 
+  train_distribution_strategy = tf.distribute.MirroredStrategy(devices=None)
+  eval_distribution_strategy = tf.distribute.MirroredStrategy(devices=None)
+
   run_config = tf.estimator.RunConfig(
       model_dir=config.model_dir,
       save_checkpoints_steps=config.save_checkpoints_steps,
+      train_distribute=train_distribution_strategy,
+      eval_distribute=eval_distribution_strategy,
       # save_checkpoints_secs=3600,
       # tf_random_seed=FLAGS.seed,
       session_config=tf.ConfigProto(log_device_placement=True),
