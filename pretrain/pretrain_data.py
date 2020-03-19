@@ -27,7 +27,7 @@ import tensorflow.compat.v1 as tf
 import configure_pretraining
 from model import tokenization
 from util import utils
-
+from spacy.symbols import NAMES
 
 def get_input_fn(config: configure_pretraining.PretrainingConfig, is_training,
                  num_cpu_threads=4):
@@ -101,7 +101,7 @@ def _decode_record(record, name_to_features):
 # features as a dict
 Inputs = collections.namedtuple(
     "Inputs", ["input_ids", "input_mask", "segment_ids", "masked_lm_positions",
-               "masked_lm_ids", "masked_lm_weights"])
+               "masked_lm_ids", "masked_lm_weights", "tag_ids"])
 
 
 def features_to_inputs(features):
@@ -115,6 +115,8 @@ def features_to_inputs(features):
                      if "masked_lm_ids" in features else None),
       masked_lm_weights=(features["masked_lm_weights"]
                          if "masked_lm_weights" in features else None),
+      tag_ids=(features["tag_ids"]
+                       if "tag_ids" in features else None),
   )
 
 
@@ -148,9 +150,11 @@ def print_tokens(inputs: Inputs, inv_vocab, updates_mask=None):
   provided_update_mask = (updates_mask is not None)
   if not provided_update_mask:
     updates_mask = np.zeros_like(inputs.input_ids)
-  for pos, (tokid, um) in enumerate(
-      zip(inputs.input_ids[0], updates_mask[0])):
+  for pos, (tokid, tag, um) in enumerate(
+      zip(inputs.input_ids[0], inputs.tag_ids[0], updates_mask[0])):
     token = inv_vocab[tokid]
+    if tag == -1:
+      tag = 0
     if token == "[PAD]":
       break
     if pos in pos_to_tokid:
@@ -160,5 +164,6 @@ def print_tokens(inputs: Inputs, inv_vocab, updates_mask=None):
     else:
       if provided_update_mask:
         assert um == 0
-    text += token + " "
+    tag_print = GREEN + " _" + NAMES[tag] + "_ " + ENDC
+    text += token + tag_print + " "
   utils.log(tokenization.printable_text(text))

@@ -195,14 +195,15 @@ def mask(config: configure_pretraining.PretrainingConfig,
       replace_with_mask_positions)
 
   if config.debug:
-    def pretty_print(inputs_ids, masked_lm_ids, masked_lm_positions, masked_lm_weights):
+    def pretty_print(inputs_ids, masked_lm_ids, masked_lm_positions, masked_lm_weights, tag_ids):
       debug_inputs = Inputs(
       input_ids=inputs_ids,
       input_mask=None,
       segment_ids=None,
       masked_lm_positions=masked_lm_positions,
       masked_lm_ids=masked_lm_ids,
-      masked_lm_weights=masked_lm_weights)
+      masked_lm_weights=masked_lm_weights,
+      tag_ids = tag_ids)
       pretrain_data.print_tokens(debug_inputs, inv_vocab)
 
       ## TODO: save to the mask choice
@@ -210,7 +211,7 @@ def mask(config: configure_pretraining.PretrainingConfig,
 
     mask_shape = masked_lm_ids.get_shape()
     inputs_ids, masked_lm_ids, masked_lm_positions, masked_lm_weights = \
-      tf.py_func(pretty_print,[inputs_ids, masked_lm_ids, masked_lm_positions, masked_lm_weights],
+      tf.py_func(pretty_print,[inputs_ids, masked_lm_ids, masked_lm_positions, masked_lm_weights, inputs.tag_ids],
                  (tf.int32, tf.int32, tf.int32, tf.float32))
     inputs_ids.set_shape(inputs.input_ids.get_shape())
     masked_lm_ids.set_shape(mask_shape)
@@ -222,7 +223,8 @@ def mask(config: configure_pretraining.PretrainingConfig,
       input_ids=tf.stop_gradient(inputs_ids),
       masked_lm_positions=masked_lm_positions,
       masked_lm_ids=masked_lm_ids,
-      masked_lm_weights=masked_lm_weights
+      masked_lm_weights=masked_lm_weights,
+      tag_ids = inputs.tag_ids
     )
 
 
