@@ -29,7 +29,7 @@ from model import modeling
 from model import tokenization
 from pretrain import pretrain_data
 from pretrain.pretrain_data import Inputs
-
+from spacy.symbols import IDS
 
 def gather_positions(sequence, positions):
   """Gathers the vectors at the specific positions over a minibatch.
@@ -128,6 +128,21 @@ def _get_candidates_mask(inputs: pretrain_data.Inputs, vocab,
     candidates_mask &= ~disallow_from_mask
   return candidates_mask
 
+def _get_unfavor_pos_mask(inputs: pretrain_data.Inputs):
+  unfavor_pos = tf.ones_like(inputs.input_ids, tf.bool)
+  for tag_id in PREFER_TAG_IDS:
+    unfavor_pos &= tf.not_equal(inputs.tag_ids, tag_id)
+  return unfavor_pos
+
+
+RAND_STRATEGY = "random"
+POS_STRATEGY = "pos"
+ENTROPY_STRATEGY = "entropy"
+ADVERSARIAL_STRATEGY = "adv"
+
+PREFER_TAGS = ['ADJ', 'VERB', 'NOUN', 'PRON', 'ADV']
+PREFER_TAG_IDS = [IDS[tag] for tag in PREFER_TAGS]
+
 
 def mask(config: configure_pretraining.PretrainingConfig,
          inputs: pretrain_data.Inputs, mask_prob, proposal_distribution=1.0,
@@ -169,7 +184,20 @@ def mask(config: configure_pretraining.PretrainingConfig,
 
   # Get a probability of masking each position in the sequence
   candidate_mask_float = tf.cast(candidates_mask, tf.float32)
-  sample_prob = (proposal_distribution * candidate_mask_float)
+
+  if config.masking_strategy == RAND_STRATEGY:
+    sample_prob = (proposal_distribution * candidate_mask_float)
+  elif config.masking_strategy == POS_STRATEGY:
+    unfavor_pos_mask = _get_unfavor_pos_mask(inputs)
+    unfavor_pos_mask_float = tf.cast(unfavor_pos_mask, tf.float32)
+    prefer_pos_mask_float = 1 - unfavor_pos_mask_float
+
+    # prefered pos have 80% propabiblity, not preferred ones have 20% probability
+    # proposal_distribution = prefer_pos_mask_float
+    proposal_distribution = 0.95 * prefer_pos_mask_float + 0.05
+    sample_prob = (proposal_distribution * candidate_mask_float)
+  else:
+    raise ValueError("{} strategy is not supported".format(config.masking_strategy))
   sample_prob /= tf.reduce_sum(sample_prob, axis=-1, keepdims=True)
 
   # Sample the positions to mask out
@@ -193,6 +221,14 @@ def mask(config: configure_pretraining.PretrainingConfig,
   inputs_ids, _ = scatter_update(
       inputs.input_ids, tf.fill([B, N], vocab["[MASK]"]),
       replace_with_mask_positions)
+
+  # Replace with random tokens
+  replace_with_random_positions = masked_lm_positions * tf.cast(
+    tf.greater(tf.random.uniform([B, N]), 0.925), tf.int32)
+  random_tokens = tf.random.uniform([B,N], minval=0, maxval=len(vocab), dtype=tf.int32)
+  inputs_ids, _ = scatter_update(
+    inputs_ids, random_tokens,
+    replace_with_random_positions)
 
   if config.debug:
     def pretty_print(inputs_ids, masked_lm_ids, masked_lm_positions, masked_lm_weights, tag_ids):

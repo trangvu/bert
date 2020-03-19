@@ -83,6 +83,10 @@ class PretrainingConfig(object):
     self.results_txt = os.path.join(results_dir, "unsup_results.txt")
     self.results_pkl = os.path.join(results_dir, "unsup_results.pkl")
 
+    # Masking strategy
+    self.masking_strategy = "random"
+    self.init_checkpoint = None
+
     # update defaults with passed-in hyperparameters
     self.update(kwargs)
 
@@ -114,9 +118,6 @@ class PretrainingConfig(object):
     #     self.mask_prob = 0.25
     #     self.train_batch_size = 2048
 
-    # Masking strategy
-    self.masking_strategy = "random"
-    self.init_checkpoint = None
 
     # passed-in-arguments override (for example) debug-mode defaults
     self.update(kwargs)
