@@ -211,6 +211,13 @@ def train_or_eval(config: configure_pretraining.PretrainingConfig):
   train_distribution_strategy = tf.distribute.MirroredStrategy(devices=None)
   eval_distribution_strategy = tf.distribute.MirroredStrategy(devices=None)
 
+  session_config = tf.ConfigProto(
+    log_device_placement=True,
+    inter_op_parallelism_threads=0,
+    intra_op_parallelism_threads=0,
+    allow_soft_placement=True,
+    gpu_options=tf.GPUOptions(allow_growth = True))
+
   run_config = tf.estimator.RunConfig(
       model_dir=config.model_dir,
       save_checkpoints_steps=config.save_checkpoints_steps,
@@ -218,7 +225,7 @@ def train_or_eval(config: configure_pretraining.PretrainingConfig):
       eval_distribute=eval_distribution_strategy,
       # save_checkpoints_secs=3600,
       # tf_random_seed=FLAGS.seed,
-      session_config=tf.ConfigProto(log_device_placement=True),
+      session_config= session_config,
       # keep_checkpoint_max=0,
       log_step_count_steps=100
   )
