@@ -183,7 +183,7 @@ class BertModel(object):
     if input_reprs is None:
       if input_embeddings is None:
         with tf.variable_scope(
-            (scope if untied_embeddings else "electra") + "/embeddings",
+            (scope if untied_embeddings else "bert") + "/embeddings",
             reuse=tf.AUTO_REUSE):
           # Perform embedding lookup on the word ids
           if embedding_size is None:
@@ -199,7 +199,7 @@ class BertModel(object):
         self.token_embeddings = input_embeddings
 
       with tf.variable_scope(
-          (scope if untied_embeddings else "electra") + "/embeddings",
+          (scope if untied_embeddings else "bert") + "/embeddings",
           reuse=tf.AUTO_REUSE):
         # Add positional embeddings and token type embeddings, then layer
         # normalize and perform dropout.
@@ -219,7 +219,7 @@ class BertModel(object):
     if not update_embeddings:
       self.embedding_output = tf.stop_gradient(self.embedding_output)
 
-    with tf.variable_scope(scope, default_name="electra"):
+    with tf.variable_scope(scope, default_name="bert"):
       if self.embedding_output.shape[-1] != bert_config.hidden_size:
         self.embedding_output = tf.layers.dense(
             self.embedding_output, bert_config.hidden_size,
