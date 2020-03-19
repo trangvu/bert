@@ -11,6 +11,7 @@ import argparse
 import collections
 import json
 
+import tensorflow
 import tensorflow.compat.v1 as tf
 
 import configure_pretraining
@@ -226,7 +227,7 @@ def train_or_eval(config: configure_pretraining.PretrainingConfig):
   else:
     train_distribution_strategy = tf.distribute.MirroredStrategy(
       devices=None,
-      cross_device_ops=tf.contrib.distribute.AllReduceCrossDeviceOps('nccl', num_packs=num_gpus))
+      cross_device_ops=tensorflow.contrib.distribute.AllReduceCrossDeviceOps('nccl', num_packs=num_gpus))
     eval_distribution_strategy = tf.distribute.MirroredStrategy(devices=None)
 
     session_config = tf.ConfigProto(
