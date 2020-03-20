@@ -184,6 +184,7 @@ def mask(config: configure_pretraining.PretrainingConfig,
 
   # Get a probability of masking each position in the sequence
   candidate_mask_float = tf.cast(candidates_mask, tf.float32)
+  entropy = proposal_distribution
 
   if config.masking_strategy == RAND_STRATEGY:
     sample_prob = (proposal_distribution * candidate_mask_float)
@@ -195,6 +196,8 @@ def mask(config: configure_pretraining.PretrainingConfig,
     # prefered pos have 80% propabiblity, not preferred ones have 20% probability
     # proposal_distribution = prefer_pos_mask_float
     proposal_distribution = 0.95 * prefer_pos_mask_float + 0.05
+    sample_prob = (proposal_distribution * candidate_mask_float)
+  elif config.masking_strategy == ENTROPY_STRATEGY:
     sample_prob = (proposal_distribution * candidate_mask_float)
   else:
     raise ValueError("{} strategy is not supported".format(config.masking_strategy))

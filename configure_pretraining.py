@@ -50,12 +50,12 @@ class PretrainingConfig(object):
     self.do_lower_case = True  # lowercase the input?
 
     # generator settings
-    self.uniform_generator = False  # generator is uniform at random
-    self.untied_generator_embeddings = False  # tie generator/discriminator
+    #self.uniform_generator = False  # generator is uniform at random
+    #self.untied_generator_embeddings = False  # tie generator/discriminator
                                               # token embeddings?
     self.untied_generator = True  # tie all generator/discriminator weights?
-    self.generator_layers = 1.0  # frac of discriminator layers for generator
-    self.generator_hidden_size = 0.25  # frac of discrim hidden size for gen
+    #self.generator_layers = 1.0  # frac of discriminator layers for generator
+    #self.generator_hidden_size = 0.25  # frac of discrim hidden size for gen
     self.disallow_correct = False  # force the generator to sample incorrect
                                    # tokens (so 15% of tokens are always
                                    # fake)

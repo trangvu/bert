@@ -37,18 +37,27 @@ class PretrainingModel(object):
       self._bert_config.intermediate_size = 144 * 4
       self._bert_config.num_attention_heads = 4
 
-    # Mask the input
-    masked_inputs = pretrain_helpers.mask(
-        config, pretrain_data.features_to_inputs(features), config.mask_prob)
-
-
     embedding_size = (
-        self._bert_config.hidden_size if config.embedding_size is None else
-        config.embedding_size)
+      self._bert_config.hidden_size if config.embedding_size is None else
+      config.embedding_size)
+
+    # Mask the input
+    inputs = pretrain_data.features_to_inputs(features)
+    proposal_distribution = 1.0
+    if config.masking_strategy == pretrain_helpers.ENTROPY_STRATEGY:
+      old_model = self._build_transformer(
+        inputs, is_training,
+        embedding_size = embedding_size)
+      entropy_output = self._get_entropy_output(inputs, old_model)
+      proposal_distribution = entropy_output.entropy
+
+    masked_inputs = pretrain_helpers.mask(
+      config, pretrain_data.features_to_inputs(features), config.mask_prob,
+      proposal_distribution=proposal_distribution)
 
     # BERT model
     model = self._build_transformer(
-        masked_inputs, is_training,
+        masked_inputs, is_training, reuse=tf.AUTO_REUSE,
         embedding_size = embedding_size)
     mlm_output = self._get_masked_lm_output(masked_inputs, model)
     self.total_loss = mlm_output.loss
@@ -77,34 +86,53 @@ class PretrainingModel(object):
         weights=tf.reshape(d["masked_lm_weights"], [-1]))
     self.eval_metrics = metrics
 
+  def _get_entropy_output(self, inputs: pretrain_data.Inputs, model):
+    """Masked language modeling softmax layer."""
+    with tf.variable_scope("cls/predictions", reuse=tf.AUTO_REUSE):
+      hidden = tf.layers.dense(
+        model.get_sequence_output(),
+        units=modeling.get_shape_list(model.get_embedding_table())[-1],
+        activation=modeling.get_activation(self._bert_config.hidden_act),
+        kernel_initializer=modeling.create_initializer(
+          self._bert_config.initializer_range))
+      hidden = modeling.layer_norm(hidden)
+      output_bias = tf.get_variable(
+        "output_bias",
+        shape=[self._bert_config.vocab_size],
+        initializer=tf.zeros_initializer())
+      logits = tf.matmul(hidden, model.get_embedding_table(),
+                         transpose_b=True)
+      logits = tf.nn.bias_add(logits, output_bias)
+
+      probs = tf.nn.softmax(logits)
+      log_probs = tf.nn.log_softmax(logits)
+      entropy = -tf.reduce_sum(log_probs * probs, axis=[2])
+
+      EntropyOutput = collections.namedtuple(
+        "EntropyOutput", ["logits", "probs", "log_probs", "entropy"])
+      return EntropyOutput(
+        logits=logits, probs=probs, log_probs=log_probs, entropy=entropy)
+
   def _get_masked_lm_output(self, inputs: pretrain_data.Inputs, model):
     """Masked language modeling softmax layer."""
     masked_lm_weights = inputs.masked_lm_weights
-    with tf.variable_scope("generator_predictions"):
-      if self._config.uniform_generator:
-        logits = tf.zeros(self._bert_config.vocab_size)
-        logits_tiled = tf.zeros(
-            modeling.get_shape_list(inputs.masked_lm_ids) +
-            [self._bert_config.vocab_size])
-        logits_tiled += tf.reshape(logits, [1, 1, self._bert_config.vocab_size])
-        logits = logits_tiled
-      else:
-        relevant_hidden = pretrain_helpers.gather_positions(
-            model.get_sequence_output(), inputs.masked_lm_positions)
-        hidden = tf.layers.dense(
-            relevant_hidden,
-            units=modeling.get_shape_list(model.get_embedding_table())[-1],
-            activation=modeling.get_activation(self._bert_config.hidden_act),
-            kernel_initializer=modeling.create_initializer(
-                self._bert_config.initializer_range))
-        hidden = modeling.layer_norm(hidden)
-        output_bias = tf.get_variable(
-            "output_bias",
-            shape=[self._bert_config.vocab_size],
-            initializer=tf.zeros_initializer())
-        logits = tf.matmul(hidden, model.get_embedding_table(),
-                           transpose_b=True)
-        logits = tf.nn.bias_add(logits, output_bias)
+    with tf.variable_scope("cls/predictions", reuse=tf.AUTO_REUSE):
+      relevant_hidden = pretrain_helpers.gather_positions(
+          model.get_sequence_output(), inputs.masked_lm_positions)
+      hidden = tf.layers.dense(
+          relevant_hidden,
+          units=modeling.get_shape_list(model.get_embedding_table())[-1],
+          activation=modeling.get_activation(self._bert_config.hidden_act),
+          kernel_initializer=modeling.create_initializer(
+              self._bert_config.initializer_range))
+      hidden = modeling.layer_norm(hidden)
+      output_bias = tf.get_variable(
+          "output_bias",
+          shape=[self._bert_config.vocab_size],
+          initializer=tf.zeros_initializer())
+      logits = tf.matmul(hidden, model.get_embedding_table(),
+                         transpose_b=True)
+      logits = tf.nn.bias_add(logits, output_bias)
 
       oh_labels = tf.one_hot(
           inputs.masked_lm_ids, depth=self._bert_config.vocab_size,

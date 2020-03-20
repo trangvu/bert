@@ -5,5 +5,5 @@
   "debug": true,
   "max_seq_length": 64,
   "vocab_size": 10000,
-  "masking_strategy": "pos"
+  "masking_strategy": "entropy"
 }
