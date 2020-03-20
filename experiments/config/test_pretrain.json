@@ -1,9 +1,10 @@
 {
   "pretrain_tfrecords": "/home/vuth0001/workspace/2019-bert-selective-masking/temp/corpus-tf/pretrain_data.tfrecord*",
-  "num_train_steps": 100,
+  "num_train_steps": 5000,
   "vocab_file": "/home/vuth0001/workspace/2019-bert-selective-masking/adversarial/bert/config/test_vocab.txt",
-  "debug": true,
   "max_seq_length": 64,
   "vocab_size": 10000,
-  "masking_strategy": "entropy"
+  "masking_strategy": "entropy",
+  "save_checkpoints_steps": 500,
+  "debug": true
 }

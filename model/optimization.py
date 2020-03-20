@@ -69,7 +69,8 @@ def create_optimizer(
   train_op = optimizer.apply_gradients(
       zip(grads, tvars), global_step=global_step)
   new_global_step = global_step + 1
-  train_op = tf.group(train_op, [global_step.assign(new_global_step)])
+  # train_op = tf.group(train_op, [global_step.assign(new_global_step)])
+  train_op = tf.group(train_op)
   return train_op
 
 #

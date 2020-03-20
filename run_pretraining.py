@@ -154,7 +154,7 @@ class PretrainingModel(object):
           loss=loss, preds=preds)
 
   def _build_transformer(self, inputs: pretrain_data.Inputs, is_training,
-                         bert_config=None, name="electra", reuse=False, **kwargs):
+                         bert_config=None, name="bert", reuse=False, **kwargs):
     """Build a transformer encoder network."""
     if bert_config is None:
       bert_config = self._bert_config
@@ -259,7 +259,7 @@ def train_or_eval(config: configure_pretraining.PretrainingConfig):
     eval_distribution_strategy = tf.distribute.MirroredStrategy(devices=None)
 
     session_config = tf.ConfigProto(
-      log_device_placement=True,
+      # log_device_placement=True,
       inter_op_parallelism_threads=0,
       intra_op_parallelism_threads=0,
       allow_soft_placement=True,
