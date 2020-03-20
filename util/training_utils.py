@@ -98,3 +98,21 @@ def get_bert_config(config):
   args["intermediate_size"] = 4 * args["hidden_size"]
   args.update(**config.model_hparam_overrides)
   return modeling.BertConfig.from_dict(args)
+
+def get_teacher_config(config):
+  """Get model hyperparameters based on a pretraining/finetuning config"""
+  if config.teacher_size == "large":
+    args = {"hidden_size": 1024, "num_hidden_layers": 4, "num_attention_heads": 4}
+  elif config.teacher_size == "base":
+    args = {"hidden_size": 768, "num_hidden_layers": 4, "num_attention_heads": 4}
+  elif config.teacher_size == "small":
+    args = {"hidden_size": 256, "num_hidden_layers": 4, "num_attention_heads": 4}
+  else:
+    raise ValueError("Unknown model size", config.model_size)
+  args["vocab_size"] = config.vocab_size
+  args.update(**config.model_hparam_overrides)
+  # by default the ff size and num attn heads are determined by the hidden size
+  args["num_attention_heads"] = max(1, args["hidden_size"] // 64)
+  args["intermediate_size"] = 4 * args["hidden_size"]
+  args.update(**config.model_hparam_overrides)
+  return modeling.BertConfig.from_dict(args)

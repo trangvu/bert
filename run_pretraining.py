@@ -168,6 +168,240 @@ class PretrainingModel(object):
           use_one_hot_embeddings=self._config.use_tpu,
           scope=name)
 
+class AdversarialPretrainingModel(PretrainingModel):
+  """Transformer pre-training using the replaced-token-detection task."""
+
+  def __init__(self, config: configure_pretraining.PretrainingConfig,
+               features, is_training):
+    # Set up model config
+    self._config = config
+    self._bert_config = training_utils.get_bert_config(config)
+    self._teacher_config = training_utils.get_teacher_config(config)
+
+    if config.debug:
+      self._bert_config.num_hidden_layers = 3
+      self._bert_config.hidden_size = 144
+      self._bert_config.intermediate_size = 144 * 4
+      self._bert_config.num_attention_heads = 4
+      self._teacher_config.num_hidden_layers = 3
+      self._teacher_config.hidden_size = 144
+      self._teacher_config.intermediate_size = 144 * 4
+      self._teacher_config.num_attention_heads = 4
+
+    embedding_size = (
+      self._bert_config.hidden_size if config.embedding_size is None else
+      config.embedding_size)
+
+    # Mask the input
+    inputs = pretrain_data.features_to_inputs(features)
+    old_model = self._build_transformer(
+        inputs, is_training,
+        embedding_size=embedding_size)
+    input_states = old_model.sequence_output()
+    input_states = tf.stop_gradients(input_states)
+
+    teacher_model = self._build_teacher(input_states, is_training, embedding_size=embedding_size)
+      # calculate the proposal distribution
+
+    action_prob = teacher_model.get_action_probs() #pi(x_i)
+    samples, log_q = self._sample_masking_subset(inputs.input_mask)
+
+    masked_inputs = pretrain_helpers.mask(
+      config, pretrain_data.features_to_inputs(features), config.mask_prob,
+      proposal_distribution=proposal_distribution)
+
+    # BERT model
+    model = self._build_transformer(
+      masked_inputs, is_training, reuse=tf.AUTO_REUSE,
+      embedding_size=embedding_size)
+    mlm_output = self._get_masked_lm_output(masked_inputs, model)
+    self.total_loss = mlm_output.loss
+
+    # Evaluation
+    eval_fn_inputs = {
+      "input_ids": masked_inputs.input_ids,
+      "masked_lm_preds": mlm_output.preds,
+      "mlm_loss": mlm_output.per_example_loss,
+      "masked_lm_ids": masked_inputs.masked_lm_ids,
+      "masked_lm_weights": masked_inputs.masked_lm_weights,
+      "input_mask": masked_inputs.input_mask
+    }
+    eval_fn_keys = eval_fn_inputs.keys()
+    eval_fn_values = [eval_fn_inputs[k] for k in eval_fn_keys]
+
+    """Computes the loss and accuracy of the model."""
+    d = {k: arg for k, arg in zip(eval_fn_keys, eval_fn_values)}
+    metrics = dict()
+    metrics["masked_lm_accuracy"] = tf.metrics.accuracy(
+      labels=tf.reshape(d["masked_lm_ids"], [-1]),
+      predictions=tf.reshape(d["masked_lm_preds"], [-1]),
+      weights=tf.reshape(d["masked_lm_weights"], [-1]))
+    metrics["masked_lm_loss"] = tf.metrics.mean(
+      values=tf.reshape(d["mlm_loss"], [-1]),
+      weights=tf.reshape(d["masked_lm_weights"], [-1]))
+    self.eval_metrics = metrics
+
+  def _build_teacher(self, inputs: pretrain_data.Inputs, is_training, name="teacher", reuse=False, **kwargs):
+    """Build a transformer encoder network."""
+    with tf.variable_scope(tf.get_variable_scope(), reuse=reuse):
+      return modeling.BertModel(
+        bert_config=self._teacher_config,
+        is_training=is_training,
+        input_ids=inputs.input_ids,
+        input_mask=inputs.input_mask,
+        token_type_ids=inputs.segment_ids,
+        use_one_hot_embeddings=self._config.use_tpu,
+        scope=name)
+
+  def _sample_masking_subset(self, inputs: pretrain_data.Inputs, action_probs):
+    #calculate shifted action_probs
+    input_mask = inputs.input_mask
+    segment_id = inputs.segment_ids
+    sequence_len = tf.reduce_sum(input_mask, axis = 2)
+
+    cls_pos = tf.zeros_like(sequence_len, tf.int32)
+    segment_len = tf.reduce_sum(segment_id, axis = 2)
+
+    logZ, log_prob = self._calculate_partition_table(raw_input_mask, action_probs,
+                                               max_predictions_per_seq)
+    samples, log_q = sampling_a_subset(raw_input_mask, logZ, log_prob, max_predictions_per_seq)
+    return samples, log_q
+
+  def _calculate_partition_table(self, input_mask, output_weights, max_predictions_per_seq):
+    shape = teacher.get_shape_list(output_weights, expected_rank=2)
+    seq_len = shape[1]
+
+    with tf.variable_scope("teacher/dp"):
+      '''
+      Calculate DP table: aims to calculate logZ[0,K]
+      # We add an extra row so that when we calculate log_q_yes, we don't have out of bound error
+      # Z[b,N+1,k] = log 0 - we do not allow to choose anything
+      # logZ size batch_size x N+1 x K+1
+      '''
+      initZ = tf.TensorArray(tf.float32, size=max_predictions_per_seq + 1)
+      logZ_0 = tf.zeros_like(input_mask, dtype=tf.float32)  # size b x N
+      logZ_0 = tf.pad(logZ_0, [[0, 0], [0, 1]], "CONSTANT")  # size b x N+1
+      initZ = initZ.write(tf.constant(0), logZ_0)
+
+      # mask logp
+      output_weights = tf.cast(input_mask, dtype=tf.float32) * output_weights
+      output_weights = tf.clip_by_value(output_weights, 1e-20, 1.0)
+      # normalize pi_i = pi_i / (1 - pi_i)
+      logp = tf.log(output_weights)
+      # logp = tf.log(tf.clip_by_value(output_weights,1e-20,1.0)) - tf.log(tf.clip_by_value(1 - output_weights,1e-20,1.0))
+      accum_logp = tf.cumsum(logp, axis=1, reverse=True)
+
+      # init_value = tf.ones_like(tf.squeeze(logp[:,-1]), dtype=tf.float32) * tf.log(1e-20)
+
+      def accum_cond(j, logZ_j, logb, loga):
+        return tf.greater(j, -1)
+
+      def accum_body(j, logZ_j, logb, loga):
+        logb_j = tf.squeeze(logb[:, j])
+        log_one_minus_p_j = tf.log(1 - tf.exp(logb_j))
+        loga = loga + log_one_minus_p_j
+        next_logZ_j = tf.math.reduce_logsumexp(tf.stack([loga, logb_j]), 0)
+        logZ_j = logZ_j.write(j, next_logZ_j)
+        return [tf.subtract(j, 1), logZ_j, logb, next_logZ_j]
+
+      def dp_loop_cond(k, logZ, lastZ):
+        return tf.less(k, max_predictions_per_seq + 1)
+
+      def dp_body(k, logZ, lastZ):
+        '''
+        case j < N-k + 1:
+          logZ[j,k] = log_sum(logZ[j+1,k], logp(j) + logZ[j+1,k-1])
+        case j = N-k + 1
+          logZ[j,k] = accum_logp[j]
+        case j > N-k + 1
+          logZ[j,k] = 0
+        '''
+
+        # shift lastZ one step
+        shifted_lastZ = tf.roll(lastZ[:, :-1], shift=1, axis=1)
+        log_yes = logp + shifted_lastZ  # b x N
+        logZ_j = tf.TensorArray(tf.float32, size=seq_len + 1)
+        # minus 1 because of the last token is [SEP]
+        init_value = accum_logp[:, seq_len - k - 1]
+        logZ_j = logZ_j.write(seq_len - k - 1, init_value)
+        _, logZ_j, logb, loga = tf.while_loop(accum_cond, accum_body, [seq_len - k - 2, logZ_j, log_yes, init_value])
+        logZ_j = logZ_j.stack()  # N x b
+        logZ_j = tf.transpose(logZ_j, [1, 0])  # b x N
+        logZ = logZ.write(k, logZ_j)
+        return [tf.add(k, 1), logZ, logZ_j]
+
+      k = tf.constant(1)
+      _, logZ, lastZ = tf.while_loop(dp_loop_cond, dp_body,
+                                     [k, initZ, logZ_0],
+                                     shape_invariants=[k.get_shape(), tf.TensorShape([]),
+                                                       tf.TensorShape([None, None])])
+      logZ = logZ.stack()  # N x b x N
+      logZ = tf.transpose(logZ, [1, 2, 0])
+    return logZ, logp
+
+  def _sampling_a_subset(self, input_mask, logZ, logp, max_predictions_per_seq):
+    shape = teacher.get_shape_list(logp, expected_rank=2)
+    seq_len = shape[1]
+
+    def gather_z_indexes(sequence_tensor, positions):
+      """Gathers the vectors at the specific positions over a minibatch."""
+      # set negative indices to zeros
+      mask = tf.zeros_like(positions, dtype=tf.int32)
+      masked_position = tf.reduce_max(tf.stack([positions, mask]), 0)
+
+      index = tf.reshape(tf.cast(tf.where(tf.equal(mask, 0)), dtype=tf.int32), [-1])
+      flat_offsets = index * (max_predictions_per_seq + 1)
+      flat_positions = masked_position + flat_offsets
+      flat_sequence_tensor = tf.reshape(sequence_tensor, [-1])
+      output_tensor = tf.gather(flat_sequence_tensor, flat_positions)
+      return output_tensor
+
+    def sampling_loop_cond(j, subset, count, left, log_q):
+      # j < N and left > 0
+      # we want to exclude last tokens, because it's always a special token [SEP]
+      return tf.logical_or(tf.less(j, seq_len), tf.greater(tf.reduce_sum(left), 0))
+
+    def sampling_body(j, subset, count, left, log_q):
+      # calculate log_q_yes and log_q_no
+      logp_j = logp[:, j]
+      log_Z_total = gather_z_indexes(logZ[:, j, :], left)  # b
+      log_Z_yes = gather_z_indexes(logZ[:, j + 1, :], left - 1)  # b
+      log_q_yes = logp_j + log_Z_yes - log_Z_total
+      log_q_no = tf.log(tf.clip_by_value(1 - tf.exp(log_q_yes), 1e-20, 1.0))
+      # draw 2 Gumbel noise and compute action by argmax
+      logits = tf.transpose(tf.stack([log_q_no, log_q_yes]), [1, 0])
+      actions = gumbel.gumbel_softmax(logits)
+      action_mask = tf.cast(tf.argmax(actions, 1), dtype=tf.int32)
+      no_left_mask = tf.where(tf.greater(left, 0), tf.ones_like(left, dtype=tf.int32),
+                              tf.zeros_like(left, dtype=tf.int32))
+      output = action_mask * no_left_mask
+      actions = tf.reduce_max(actions, 1)
+      log_actions = tf.log(actions)
+      # compute log_q_j and update count and subset
+      count = count + output
+      left = left - output
+      log_q = log_q + log_actions
+      subset = subset.write(j, output)
+
+      return [tf.add(j, 1), subset, count, left, log_q]
+
+    with tf.variable_scope("teacher/sampling"):
+      # Batch sampling
+      subset = tf.TensorArray(tf.int32, size=seq_len)
+      count = tf.zeros_like(logp[:, 0], dtype=tf.dtypes.int32)
+      left = tf.ones_like(logp[:, 0], dtype=tf.dtypes.int32)
+      left = left * max_predictions_per_seq
+      log_q = tf.zeros_like(count, dtype=tf.dtypes.float32)
+
+      _, subset, count, left, log_q = tf.while_loop(sampling_loop_cond, sampling_body,
+                                                    [tf.constant(0), subset, count, left, log_q])
+
+      subset = subset.stack()  # K x b x N
+      subset = tf.transpose(subset, [1, 0])
+      partition = logZ[:, 0, -1]
+      log_q = log_q - partition
+    return subset, log_q
+
 
 def model_fn_builder(config: configure_pretraining.PretrainingConfig):
   """Build the model for training."""
@@ -286,7 +520,10 @@ def train_or_eval(config: configure_pretraining.PretrainingConfig):
 
   if config.do_train:
     utils.heading("Running training")
-    estimator.train(input_fn=pretrain_data.get_input_fn(config, True),
+    if config.masking_strategy == pretrain_helpers.ADVERSARIAL_STRATEGY:
+      adversarial_train(config, estimator)
+    else:
+      estimator.train(input_fn=pretrain_data.get_input_fn(config, True),
                     max_steps=config.num_train_steps)
   if config.do_eval:
     utils.heading("Running evaluation")
@@ -308,6 +545,13 @@ def train_one_step(config: configure_pretraining.PretrainingConfig):
     sess.run(tf.global_variables_initializer())
     utils.log(sess.run(model.total_loss))
 
+def adversarial_train(config: configure_pretraining.PretrainingConfig, estimator):
+  # Training loop for adversarial MLM
+  num_step = 0
+  for step in range(config.num_train_steps):
+
+    estimator.train(input_fn=pretrain_data.get_input_fn(config, True),
+                  max_steps=config.num_train_steps)
 
 def main():
   parser = argparse.ArgumentParser(description=__doc__)

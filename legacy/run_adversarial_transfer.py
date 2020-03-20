@@ -23,7 +23,8 @@ import os
 import tensorflow as tf
 import numpy as np
 
-from model import gumbel, modeling, optimization, tokenization, teacher
+from model import gumbel, modeling, optimization, tokenization
+from legacy import teacher
 
 flags = tf.flags
 

@@ -19,10 +19,6 @@ class PretrainingConfig(object):
     self.do_train = True  # pre-train ELECTRA
     self.do_eval = False  # evaluate generator/discriminator on unlabeled data
 
-    # loss functions
-    self.electra_objective = True  # if False, use the BERT objective instead
-    self.gen_weight = 1.0  # masked language modeling / generator loss
-    self.disc_weight = 50.0  # discriminator loss
     self.mask_prob = 0.15  # percent of input tokens to mask out / replace
 
     # optimization
@@ -86,6 +82,13 @@ class PretrainingConfig(object):
     # Masking strategy
     self.masking_strategy = "random"
     self.init_checkpoint = None
+
+    # config for adversarial strategy
+    self.teacher_update_rate = 0.33
+    self.teacher_rate_update_step = 1000
+    self.teacher_rate_decay = 0.963
+    self.teacher_learning_rate = 5e-5
+    self.teacher_size = "small"
 
     # update defaults with passed-in hyperparameters
     self.update(kwargs)

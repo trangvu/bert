@@ -20,7 +20,8 @@ from __future__ import print_function
 
 import os
 
-from model import electra, gumbel, modeling, optimization, tokenization, teacher
+from model import electra, gumbel, modeling, optimization, tokenization
+from legacy import teacher
 import tensorflow as tf
 import numpy as np
 
