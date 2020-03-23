@@ -15,7 +15,7 @@ import tensorflow
 import tensorflow.compat.v1 as tf
 
 import configure_pretraining
-from model import modeling
+from model import modeling, gumbel
 from model import optimization
 from pretrain import pretrain_data
 from pretrain import pretrain_helpers
@@ -204,7 +204,7 @@ class AdversarialPretrainingModel(PretrainingModel):
       # calculate the proposal distribution
 
     action_prob = teacher_model.get_action_probs() #pi(x_i)
-    samples, log_q = self._sample_masking_subset(inputs.input_mask)
+    samples, log_q = self._sample_masking_subset(inputs, action_prob)
 
     masked_inputs = pretrain_helpers.mask(
       config, pretrain_data.features_to_inputs(features), config.mask_prob,
@@ -257,18 +257,41 @@ class AdversarialPretrainingModel(PretrainingModel):
     #calculate shifted action_probs
     input_mask = inputs.input_mask
     segment_id = inputs.segment_ids
+
+    shape = modeling.get_shape_list(input_mask, expected_rank=2)
+    max_seq_len = shape[1]
     sequence_len = tf.reduce_sum(input_mask, axis = 2)
 
-    cls_pos = tf.zeros_like(sequence_len, tf.int32)
-    segment_len = tf.reduce_sum(segment_id, axis = 2)
+    def _remove_special_token(action_prob, segment, mask):
+      seq_len = tf.reduce_sum(mask)
+      seg1_len = tf.reduce_sum(segment)
+      seq1_idx = tf.range(start=1, limit=seg1_len, dtype = tf.int32)
+      seq2_idx = tf.range(start=seg1_len + 1, limit=seq_len, dtype = tf.int32)
+      mask_idx = tf.range(start=seq_len + 1, limit=max_seq_len - 1, dtype = tf.int32)
+      index_tensor = tf.concat([seq1_idx, seq2_idx, mask_idx])
 
-    logZ, log_prob = self._calculate_partition_table(raw_input_mask, action_probs,
-                                               max_predictions_per_seq)
-    samples, log_q = sampling_a_subset(raw_input_mask, logZ, log_prob, max_predictions_per_seq)
+      seq1_prob = action_prob[1, seg1_len]
+      seq2_prob = action_prob[seg1_len+1, seq_len]
+      mask_prob = tf.ones_like(mask_idx, dtype=tf.float32) * 1e-20
+      cleaned_action_prob = tf.concat([seq1_prob, seq2_prob, mask_prob])
+      cleaned_mask = mask[3:]
+      return (cleaned_action_prob, index_tensor, cleaned_mask)
+
+    # Remove CLS and SEP action probs
+    cleaned_action_probs, index_tensors, cleaned_input_mask = tf.map_fn(_remove_special_token,
+                                                              (action_probs, segment_id, input_mask),
+                                                              dtype=(tf.float32, tf.int32, tf.int32))
+
+    logZ, log_prob = self._calculate_partition_table(cleaned_input_mask, cleaned_action_probs,
+                                               self._config.max_predictions_per_seq)
+
+    samples, log_q = self._sampling_a_subset(logZ, log_prob, self._config.max_predictions_per_seq)
+
+
     return samples, log_q
 
-  def _calculate_partition_table(self, input_mask, output_weights, max_predictions_per_seq):
-    shape = teacher.get_shape_list(output_weights, expected_rank=2)
+  def _calculate_partition_table(self, input_mask, action_prob, max_predictions_per_seq):
+    shape = modeling.get_shape_list(action_prob, expected_rank=2)
     seq_len = shape[1]
 
     with tf.variable_scope("teacher/dp"):
@@ -284,14 +307,10 @@ class AdversarialPretrainingModel(PretrainingModel):
       initZ = initZ.write(tf.constant(0), logZ_0)
 
       # mask logp
-      output_weights = tf.cast(input_mask, dtype=tf.float32) * output_weights
-      output_weights = tf.clip_by_value(output_weights, 1e-20, 1.0)
-      # normalize pi_i = pi_i / (1 - pi_i)
-      logp = tf.log(output_weights)
-      # logp = tf.log(tf.clip_by_value(output_weights,1e-20,1.0)) - tf.log(tf.clip_by_value(1 - output_weights,1e-20,1.0))
+      action_prob = tf.cast(input_mask, dtype=tf.float32) * action_prob
+      action_prob = tf.clip_by_value(action_prob, 1e-20, 1.0)
+      logp = tf.log(action_prob)
       accum_logp = tf.cumsum(logp, axis=1, reverse=True)
-
-      # init_value = tf.ones_like(tf.squeeze(logp[:,-1]), dtype=tf.float32) * tf.log(1e-20)
 
       def accum_cond(j, logZ_j, logb, loga):
         return tf.greater(j, -1)
@@ -339,8 +358,8 @@ class AdversarialPretrainingModel(PretrainingModel):
       logZ = tf.transpose(logZ, [1, 2, 0])
     return logZ, logp
 
-  def _sampling_a_subset(self, input_mask, logZ, logp, max_predictions_per_seq):
-    shape = teacher.get_shape_list(logp, expected_rank=2)
+  def _sampling_a_subset(self,logZ, logp, max_predictions_per_seq):
+    shape = modeling.get_shape_list(logp, expected_rank=2)
     seq_len = shape[1]
 
     def gather_z_indexes(sequence_tensor, positions):
