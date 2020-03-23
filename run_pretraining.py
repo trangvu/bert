@@ -292,13 +292,13 @@ class AdversarialPretrainingModel(PretrainingModel):
     elems = tf.stack([action_probs, tf.cast(segment_ids, tf.float32),
                       tf.cast(input_ids, tf.float32), tf.cast(input_mask, tf.float32)], 2)
 
-    def test(val1, val2, val3, val4):
+    def test(val1, val2, val3):
       print(val1)
       print(val2)
       print(val3)
       return val1
     el_shape = elems.get_shape()
-    elems = tf.py_func(test,[elems, input_mask, input_ids], tf.int32)
+    elems = tf.py_func(test,[elems, input_mask, input_ids], tf.float32)
     elems.set_shape(el_shape)
     input_ids.set_shape(input_mask.get_shape())
     cleaned_action_probs, index_tensors, cleaned_inputs, cleaned_input_mask = tf.map_fn(_remove_special_token,
@@ -586,10 +586,7 @@ def train_or_eval(config: configure_pretraining.PretrainingConfig):
 
   if config.do_train:
     utils.heading("Running training")
-    if config.masking_strategy == pretrain_helpers.ADVERSARIAL_STRATEGY:
-      adversarial_train(config, estimator)
-    else:
-      estimator.train(input_fn=pretrain_data.get_input_fn(config, True),
+    estimator.train(input_fn=pretrain_data.get_input_fn(config, True),
                     max_steps=config.num_train_steps)
   if config.do_eval:
     utils.heading("Running evaluation")
@@ -611,13 +608,13 @@ def train_one_step(config: configure_pretraining.PretrainingConfig):
     sess.run(tf.global_variables_initializer())
     utils.log(sess.run(model.total_loss))
 
-def adversarial_train(config: configure_pretraining.PretrainingConfig, estimator):
-  # Training loop for adversarial MLM
-  num_step = 0
-  for step in range(config.num_train_steps):
-
-    estimator.train(input_fn=pretrain_data.get_input_fn(config, True),
-                  max_steps=config.num_train_steps)
+# def adversarial_train(config: configure_pretraining.PretrainingConfig, estimator):
+#   # Training loop for adversarial MLM
+#   num_step = 0
+#   for step in range(config.num_train_steps):
+#
+#     estimator.train(input_fn=pretrain_data.get_input_fn(config, True),
+#                   max_steps=config.num_train_steps)
 
 def main():
   parser = argparse.ArgumentParser(description=__doc__)
