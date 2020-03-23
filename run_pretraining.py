@@ -15,6 +15,7 @@ import tensorflow
 import tensorflow.compat.v1 as tf
 
 import configure_pretraining
+from legacy import teacher
 from model import modeling, gumbel
 from model import optimization
 from pretrain import pretrain_data
@@ -197,18 +198,14 @@ class AdversarialPretrainingModel(PretrainingModel):
     old_model = self._build_transformer(
         inputs, is_training,
         embedding_size=embedding_size)
-    input_states = old_model.sequence_output()
-    input_states = tf.stop_gradients(input_states)
+    input_states = old_model.get_sequence_output()
+    input_states = tf.stop_gradient(input_states)
 
-    teacher_model = self._build_teacher(input_states, is_training, embedding_size=embedding_size)
+    teacher_model = self._build_teacher(input_states, inputs, is_training, embedding_size=embedding_size)
       # calculate the proposal distribution
 
     action_prob = teacher_model.get_action_probs() #pi(x_i)
-    samples, log_q = self._sample_masking_subset(inputs, action_prob)
-
-    masked_inputs = pretrain_helpers.mask(
-      config, pretrain_data.features_to_inputs(features), config.mask_prob,
-      proposal_distribution=proposal_distribution)
+    samples, log_q, masked_inputs = self._sample_masking_subset(inputs, action_prob)
 
     # BERT model
     model = self._build_transformer(
@@ -241,54 +238,100 @@ class AdversarialPretrainingModel(PretrainingModel):
       weights=tf.reshape(d["masked_lm_weights"], [-1]))
     self.eval_metrics = metrics
 
-  def _build_teacher(self, inputs: pretrain_data.Inputs, is_training, name="teacher", reuse=False, **kwargs):
+  def _build_teacher(self, states, inputs: pretrain_data.Inputs, is_training, name="teacher", reuse=False, **kwargs):
     """Build a transformer encoder network."""
     with tf.variable_scope(tf.get_variable_scope(), reuse=reuse):
-      return modeling.BertModel(
-        bert_config=self._teacher_config,
-        is_training=is_training,
-        input_ids=inputs.input_ids,
-        input_mask=inputs.input_mask,
-        token_type_ids=inputs.segment_ids,
-        use_one_hot_embeddings=self._config.use_tpu,
-        scope=name)
+      return teacher.TeacherModel(
+            config=self._teacher_config,
+            is_training=is_training,
+            input_states=states,
+            input_mask=inputs.input_mask,
+            scope=name
+        )
 
   def _sample_masking_subset(self, inputs: pretrain_data.Inputs, action_probs):
     #calculate shifted action_probs
     input_mask = inputs.input_mask
-    segment_id = inputs.segment_ids
+    segment_ids = inputs.segment_ids
+    input_ids = inputs.input_ids
 
     shape = modeling.get_shape_list(input_mask, expected_rank=2)
+    batch_size = shape[0]
     max_seq_len = shape[1]
-    sequence_len = tf.reduce_sum(input_mask, axis = 2)
+    sequence_len = tf.reduce_sum(input_mask, axis = 1)
 
-    def _remove_special_token(action_prob, segment, mask):
+    def test(val1, val2, val3, val4):
+      print(val1)
+      print(val2)
+      print(val3)
+      return val1
+
+    def _remove_special_token(elems):
+      action_prob = tf.cast(elems[0], tf.float32)
+      segment = tf.cast(elems[1], tf.int32)
+      input = tf.cast(elems[2], tf.int32)
+      mask = tf.cast(elems[3], tf.int32)
       seq_len = tf.reduce_sum(mask)
       seg1_len = tf.reduce_sum(segment)
-      seq1_idx = tf.range(start=1, limit=seg1_len, dtype = tf.int32)
-      seq2_idx = tf.range(start=seg1_len + 1, limit=seq_len, dtype = tf.int32)
-      mask_idx = tf.range(start=seq_len + 1, limit=max_seq_len - 1, dtype = tf.int32)
-      index_tensor = tf.concat([seq1_idx, seq2_idx, mask_idx])
+      seq1_idx = tf.range(start=1, limit=seg1_len - 1, dtype = tf.int32)
+      seq2_idx = tf.range(start=seg1_len, limit=seq_len - 1, dtype = tf.int32)
+      mask_idx = tf.range(start=seq_len, limit=max_seq_len - 1, dtype = tf.int32)
+      index_tensor = tf.concat([seq1_idx, seq2_idx, mask_idx], axis = 0)
 
-      seq1_prob = action_prob[1, seg1_len]
-      seq2_prob = action_prob[seg1_len+1, seq_len]
+      seq1_prob = action_prob[1:seg1_len - 1]
+      seq2_prob = action_prob[seg1_len:seq_len -1]
       mask_prob = tf.ones_like(mask_idx, dtype=tf.float32) * 1e-20
-      cleaned_action_prob = tf.concat([seq1_prob, seq2_prob, mask_prob])
+      cleaned_action_prob = tf.concat([seq1_prob, seq2_prob, mask_prob], axis = 0)
       cleaned_mask = mask[3:]
-      return (cleaned_action_prob, index_tensor, cleaned_mask)
+
+      cleaned_input = tf.concat([input[1:seg1_len -1], input[seg1_len:seq_len-1], input[seq_len:-1]], axis = 0)
+      return (cleaned_action_prob, index_tensor, cleaned_input, cleaned_mask)
+
 
     # Remove CLS and SEP action probs
-    cleaned_action_probs, index_tensors, cleaned_input_mask = tf.map_fn(_remove_special_token,
-                                                              (action_probs, segment_id, input_mask),
-                                                              dtype=(tf.float32, tf.int32, tf.int32))
+    elems = tf.stack([action_probs, tf.cast(segment_ids, tf.float32),
+                      tf.cast(input_ids, tf.float32), tf.cast(input_mask, tf.float32)], 2)
+
+    def test(val1, val2, val3, val4):
+      print(val1)
+      print(val2)
+      print(val3)
+      return val1
+    el_shape = elems.get_shape()
+    elems = tf.py_func(test,[elems, input_mask, input_ids], tf.int32)
+    elems.set_shape(el_shape)
+    input_ids.set_shape(input_mask.get_shape())
+    cleaned_action_probs, index_tensors, cleaned_inputs, cleaned_input_mask = tf.map_fn(_remove_special_token,
+                                                                                        elems,
+                                                              dtype=(tf.float32, tf.int32, tf.int32, tf.int32))
+
+    cleaned_inputs = tf.py_func(test,[cleaned_inputs, input_mask, segment_ids], tf.int32)
+    cleaned_inputs.set_shape(index_tensors.get_shape())
 
     logZ, log_prob = self._calculate_partition_table(cleaned_input_mask, cleaned_action_probs,
                                                self._config.max_predictions_per_seq)
 
     samples, log_q = self._sampling_a_subset(logZ, log_prob, self._config.max_predictions_per_seq)
 
+    # Collect masked_lm_ids and masked_lm_positions
+    # num_mask = tf.sum(samples, axis = 2)
+    zero_values = tf.zeros_like(index_tensors, tf.int32)
+    mask_position = tf.where(tf.equal(samples, 1),  index_tensors, zero_values)
+    mask_labels = tf.where(tf.equal(samples, 1), cleaned_inputs, zero_values)
+    topk_position, _ = tf.nn.top_k(mask_position, self._config.max_predictions_per_seq, sorted=False)
+    topk_labels, _ = tf.nn.top_k(mask_labels, self._config.max_predictions_per_seq, sorted=False)
 
-    return samples, log_q
+    # Apply mask on input
+
+    masked_input = pretrain_data.get_updated_inputs(
+      inputs,
+      input_ids=input_ids,
+      masked_lm_positions=tf.stop_gradient(topk_position),
+      masked_lm_ids=tf.stop_gradient(topk_labels),
+      masked_lm_weights=tf.zeros_like(topk_position, tf.float32),
+      tag_ids = inputs.tag_ids
+    )
+    return samples, log_q, masked_input
 
   def _calculate_partition_table(self, input_mask, action_prob, max_predictions_per_seq):
     shape = modeling.get_shape_list(action_prob, expected_rank=2)
@@ -427,7 +470,11 @@ def model_fn_builder(config: configure_pretraining.PretrainingConfig):
 
   def model_fn(features, labels, mode, params):
     """Build the model for training."""
-    model = PretrainingModel(config, features,
+    if config.masking_strategy == pretrain_helpers.ADVERSARIAL_STRATEGY:
+      model = AdversarialPretrainingModel(config, features,
+                               mode == tf.estimator.ModeKeys.TRAIN)
+    else:
+      model = PretrainingModel(config, features,
                              mode == tf.estimator.ModeKeys.TRAIN)
     utils.log("Model is built!")
 
