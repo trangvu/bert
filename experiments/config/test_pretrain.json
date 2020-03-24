@@ -6,6 +6,5 @@
   "vocab_size": 10000,
   "masking_strategy": "adv",
   "save_checkpoints_steps": 500,
-  "debug": true,
-  "train_batch_size": 2
+  "debug": true
 }
