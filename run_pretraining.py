@@ -215,7 +215,7 @@ class AdversarialPretrainingModel(PretrainingModel):
     action_prob = teacher_model.get_action_probs() #pi(x_i)
 
     coin_toss = tf.random.uniform([])
-    samples, log_q, masked_inputs = tf.cond(coin_toss < 0.5,
+    log_q, masked_inputs = tf.cond(coin_toss < 0.5,
                              lambda: self._sample_masking_subset(inputs, action_prob),
                              lambda: self._argmax_subset(inputs, action_prob))
 
@@ -338,7 +338,7 @@ class AdversarialPretrainingModel(PretrainingModel):
 
     # Collect masked_lm_ids and masked_lm_positions
     masked_input = self._apply_masking(inputs, samples, index_tensors, batch_size, max_seq_len)
-    return samples, log_q, masked_input
+    return log_q, masked_input
 
   def _argmax_subset(self, inputs: pretrain_data.Inputs, output_weights):
     shape = modeling.get_shape_list(inputs.input_ids, expected_rank=2)
@@ -356,7 +356,7 @@ class AdversarialPretrainingModel(PretrainingModel):
     log_q = tf.zeros_like(input_mask, dtype=tf.float32)
     index_tensors = tf.range(start=0, limit=seq_len, dtype = tf.int32)
     masked_input = self._apply_masking(inputs, samples, index_tensors, batch_size, seq_len)
-    return samples, log_q, masked_input
+    return log_q, masked_input
 
   def _apply_masking(self, inputs: pretrain_data.Inputs, samples, index_tensors, batch_size, seq_len):
     zero_values = tf.zeros_like(index_tensors, tf.int32)
