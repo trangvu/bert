@@ -354,7 +354,7 @@ class AdversarialPretrainingModel(PretrainingModel):
     samples = tf.where(output_weights < threshold,
                        tf.zeros_like(input_mask, dtype=tf.int32), tf.ones_like(input_mask, dtype=tf.int32))
     log_q = tf.zeros_like(input_mask, dtype=tf.float32)
-    index_tensors = tf.range(start=0, limit=seq_len, dtype = tf.int32)
+    index_tensors = tf.reshape(tf.tile(tf.range(start=0, limit=seq_len, dtype = tf.int32), [batch_size]),[batch_size, -1])
     masked_input = self._apply_masking(inputs, samples, index_tensors, batch_size, seq_len)
     return log_q, masked_input
 
@@ -425,6 +425,7 @@ class AdversarialPretrainingModel(PretrainingModel):
       tag_ids=inputs.tag_ids
     )
     return masked_input
+
   def _calculate_partition_table(self, input_mask, action_prob, max_predictions_per_seq):
     shape = modeling.get_shape_list(action_prob, expected_rank=2)
     seq_len = shape[1]
