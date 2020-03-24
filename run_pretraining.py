@@ -11,15 +11,18 @@ import argparse
 import collections
 import json
 
+import numpy as np
 import tensorflow
 import tensorflow.compat.v1 as tf
 
 import configure_pretraining
 from legacy import teacher
-from model import modeling, gumbel
+from model import modeling, gumbel, tokenization
 from model import optimization
 from pretrain import pretrain_data
 from pretrain import pretrain_helpers
+from pretrain.pretrain_data import Inputs
+from pretrain.pretrain_helpers import scatter_update
 from util import training_utils
 from util import utils
 
@@ -193,6 +196,11 @@ class AdversarialPretrainingModel(PretrainingModel):
       self._bert_config.hidden_size if config.embedding_size is None else
       config.embedding_size)
 
+    tokenizer = tokenization.FullTokenizer(
+      config.vocab_file, do_lower_case=config.do_lower_case)
+    self._vocab = tokenizer.vocab
+    self._inv_vocab = tokenizer.inv_vocab
+
     # Mask the input
     inputs = pretrain_data.features_to_inputs(features)
     old_model = self._build_transformer(
@@ -255,80 +263,119 @@ class AdversarialPretrainingModel(PretrainingModel):
     segment_ids = inputs.segment_ids
     input_ids = inputs.input_ids
 
-    shape = modeling.get_shape_list(input_mask, expected_rank=2)
+    shape = modeling.get_shape_list(input_ids, expected_rank=2)
     batch_size = shape[0]
     max_seq_len = shape[1]
-    sequence_len = tf.reduce_sum(input_mask, axis = 1)
-
-    def test(val1, val2, val3, val4):
-      print(val1)
-      print(val2)
-      print(val3)
-      return val1
 
     def _remove_special_token(elems):
       action_prob = tf.cast(elems[0], tf.float32)
+      action_prob = tf.concat([action_prob,[0.0]], axis  = 0)
       segment = tf.cast(elems[1], tf.int32)
+      segment = tf.concat([segment,[0]], axis = 0)
       input = tf.cast(elems[2], tf.int32)
+      input = tf.concat([input,[0]], axis = 0)
       mask = tf.cast(elems[3], tf.int32)
+      mask = tf.concat([mask,[0]], axis = 0)
+
       seq_len = tf.reduce_sum(mask)
-      seg1_len = tf.reduce_sum(segment)
-      seq1_idx = tf.range(start=1, limit=seg1_len - 1, dtype = tf.int32)
-      seq2_idx = tf.range(start=seg1_len, limit=seq_len - 1, dtype = tf.int32)
-      mask_idx = tf.range(start=seq_len, limit=max_seq_len - 1, dtype = tf.int32)
+      seg1_len = seq_len - tf.reduce_sum(segment)
+      seq1_idx = tf.range(start=1, limit=seg1_len-1, dtype = tf.int32)
+      seq2_limit = tf.math.maximum(seg1_len, seq_len - 1)
+      seq2_idx = tf.range(start=seg1_len, limit=seq2_limit, dtype = tf.int32)
+      offset = tf.cast(tf.greater(seq_len, seg1_len), tf.int32)
+      mask_idx = tf.range(start=seq_len, limit=max_seq_len + offset, dtype = tf.int32)
       index_tensor = tf.concat([seq1_idx, seq2_idx, mask_idx], axis = 0)
 
       seq1_prob = action_prob[1:seg1_len - 1]
-      seq2_prob = action_prob[seg1_len:seq_len -1]
+      seq2_prob = action_prob[seg1_len:seq2_limit]
       mask_prob = tf.ones_like(mask_idx, dtype=tf.float32) * 1e-20
       cleaned_action_prob = tf.concat([seq1_prob, seq2_prob, mask_prob], axis = 0)
-      cleaned_mask = mask[3:]
+      cleaned_mask = tf.concat([mask[1:seg1_len -1], mask[seg1_len:seq_len - 1],
+                                mask[seq_len:max_seq_len + offset]], axis = 0)
 
-      cleaned_input = tf.concat([input[1:seg1_len -1], input[seg1_len:seq_len-1], input[seq_len:-1]], axis = 0)
+      cleaned_input = tf.concat([input[1:seg1_len -1], input[seg1_len:seq_len - 1],
+                                 input[seq_len:max_seq_len + offset]], axis = 0)
+
       return (cleaned_action_prob, index_tensor, cleaned_input, cleaned_mask)
 
 
     # Remove CLS and SEP action probs
     elems = tf.stack([action_probs, tf.cast(segment_ids, tf.float32),
-                      tf.cast(input_ids, tf.float32), tf.cast(input_mask, tf.float32)], 2)
+                      tf.cast(input_ids, tf.float32), tf.cast(input_mask, tf.float32)], 1)
 
-    def test(val1, val2, val3):
-      print(val1)
-      print(val2)
-      print(val3)
-      return val1
-    el_shape = elems.get_shape()
-    elems = tf.py_func(test,[elems, input_mask, input_ids], tf.float32)
-    elems.set_shape(el_shape)
     input_ids.set_shape(input_mask.get_shape())
     cleaned_action_probs, index_tensors, cleaned_inputs, cleaned_input_mask = tf.map_fn(_remove_special_token,
                                                                                         elems,
-                                                              dtype=(tf.float32, tf.int32, tf.int32, tf.int32))
-
-    cleaned_inputs = tf.py_func(test,[cleaned_inputs, input_mask, segment_ids], tf.int32)
-    cleaned_inputs.set_shape(index_tensors.get_shape())
-
+                                                              dtype=(tf.float32, tf.int32, tf.int32, tf.int32),
+                                                              parallel_iterations=1)
     logZ, log_prob = self._calculate_partition_table(cleaned_input_mask, cleaned_action_probs,
                                                self._config.max_predictions_per_seq)
 
     samples, log_q = self._sampling_a_subset(logZ, log_prob, self._config.max_predictions_per_seq)
 
     # Collect masked_lm_ids and masked_lm_positions
-    # num_mask = tf.sum(samples, axis = 2)
     zero_values = tf.zeros_like(index_tensors, tf.int32)
-    mask_position = tf.where(tf.equal(samples, 1),  index_tensors, zero_values)
-    mask_labels = tf.where(tf.equal(samples, 1), cleaned_inputs, zero_values)
-    topk_position, _ = tf.nn.top_k(mask_position, self._config.max_predictions_per_seq, sorted=False)
-    topk_labels, _ = tf.nn.top_k(mask_labels, self._config.max_predictions_per_seq, sorted=False)
+    selected_position = tf.where(tf.equal(samples, 1),  index_tensors, zero_values)
+    masked_lm_positions, _ = tf.nn.top_k(selected_position, self._config.max_predictions_per_seq, sorted=False)
 
+    # Get the ids of the masked-out tokens
+    shift = tf.expand_dims(max_seq_len * tf.range(batch_size), -1)
+    flat_positions = tf.reshape(masked_lm_positions + shift, [-1, 1])
+    masked_lm_ids = tf.gather_nd(tf.reshape(input_ids, [-1]),
+                                 flat_positions)
+    masked_lm_ids = tf.reshape(masked_lm_ids, [batch_size, -1])
+
+    # Update the input ids
+    replaced_prob = tf.random.uniform([batch_size, self._config.max_predictions_per_seq])
+    replace_with_mask_positions = masked_lm_positions * tf.cast(
+      tf.less(replaced_prob, 0.85), tf.int32)
+    inputs_ids, _ = scatter_update(
+      inputs.input_ids, tf.fill([batch_size, self._config.max_predictions_per_seq], self._vocab["[MASK]"]),
+      replace_with_mask_positions)
+
+    # Replace with random tokens
+    replace_with_random_positions = masked_lm_positions * tf.cast(
+      tf.greater(replaced_prob, 0.925), tf.int32)
+    random_tokens = tf.random.uniform([batch_size, self._config.max_predictions_per_seq],
+                                      minval=0, maxval=len(self._vocab), dtype=tf.int32)
+
+    inputs_ids, _ = scatter_update(
+      inputs_ids, random_tokens,
+      replace_with_random_positions)
+
+    masked_lm_weights = tf.ones_like(masked_lm_ids, tf.float32)
+    inv_vocab = self._inv_vocab
     # Apply mask on input
+    if self._config.debug:
+      def pretty_print(inputs_ids, masked_lm_ids, masked_lm_positions, masked_lm_weights, tag_ids):
+        debug_inputs = Inputs(
+          input_ids=inputs_ids,
+          input_mask=None,
+          segment_ids=None,
+          masked_lm_positions=masked_lm_positions,
+          masked_lm_ids=masked_lm_ids,
+          masked_lm_weights=masked_lm_weights,
+          tag_ids=tag_ids)
+        pretrain_data.print_tokens(debug_inputs, inv_vocab)
+
+        ## TODO: save to the mask choice
+        return inputs_ids, masked_lm_ids, masked_lm_positions, masked_lm_weights
+
+      mask_shape = masked_lm_ids.get_shape()
+      inputs_ids, masked_lm_ids, masked_lm_positions, masked_lm_weights = \
+        tf.py_func(pretty_print, [inputs_ids, masked_lm_ids, masked_lm_positions, masked_lm_weights, inputs.tag_ids],
+                   (tf.int32, tf.int32, tf.int32, tf.float32))
+      inputs_ids.set_shape(inputs.input_ids.get_shape())
+      masked_lm_ids.set_shape(mask_shape)
+      masked_lm_positions.set_shape(mask_shape)
+      masked_lm_weights.set_shape(mask_shape)
 
     masked_input = pretrain_data.get_updated_inputs(
       inputs,
       input_ids=input_ids,
-      masked_lm_positions=tf.stop_gradient(topk_position),
-      masked_lm_ids=tf.stop_gradient(topk_labels),
-      masked_lm_weights=tf.zeros_like(topk_position, tf.float32),
+      masked_lm_positions=masked_lm_positions,
+      masked_lm_ids=masked_lm_ids,
+      masked_lm_weights=masked_lm_weights,
       tag_ids = inputs.tag_ids
     )
     return samples, log_q, masked_input

@@ -184,7 +184,6 @@ def mask(config: configure_pretraining.PretrainingConfig,
 
   # Get a probability of masking each position in the sequence
   candidate_mask_float = tf.cast(candidates_mask, tf.float32)
-  entropy = proposal_distribution
 
   if config.masking_strategy == RAND_STRATEGY:
     sample_prob = (proposal_distribution * candidate_mask_float)
@@ -219,15 +218,16 @@ def mask(config: configure_pretraining.PretrainingConfig,
   masked_lm_ids *= tf.cast(masked_lm_weights, tf.int32)
 
   # Update the input ids
+  replace_prob = tf.random.uniform([B, N])
   replace_with_mask_positions = masked_lm_positions * tf.cast(
-      tf.less(tf.random.uniform([B, N]), 0.85), tf.int32)
+      tf.less(replace_prob, 0.85), tf.int32)
   inputs_ids, _ = scatter_update(
       inputs.input_ids, tf.fill([B, N], vocab["[MASK]"]),
       replace_with_mask_positions)
 
   # Replace with random tokens
   replace_with_random_positions = masked_lm_positions * tf.cast(
-    tf.greater(tf.random.uniform([B, N]), 0.925), tf.int32)
+    tf.greater(replace_prob, 0.925), tf.int32)
   random_tokens = tf.random.uniform([B,N], minval=0, maxval=len(vocab), dtype=tf.int32)
   inputs_ids, _ = scatter_update(
     inputs_ids, random_tokens,
