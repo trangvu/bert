@@ -215,7 +215,6 @@ class AdversarialPretrainingModel(PretrainingModel):
     action_prob = teacher_model.get_action_probs() #pi(x_i)
 
     coin_toss = tf.random.uniform([])
-    update_teacher = tf.less(coin_toss, 0.1)
     log_q, masked_inputs = self._sample_masking_subset(inputs, action_prob)
 
     # BERT model
@@ -239,7 +238,7 @@ class AdversarialPretrainingModel(PretrainingModel):
       teacher_loss = tf.reduce_mean(- log_q * reward)
       return teacher_loss
 
-    teacher_loss = tf.cond(coin_toss < 0.1, lambda: compute_teacher_loss(log_q, reward, self._baseline), lambda: tf.constant(0.0))
+    teacher_loss = tf.cond(coin_toss < 0.5, lambda: compute_teacher_loss(log_q, reward, self._baseline), lambda: tf.constant(0.0))
     teacher_loss = tf.Print(teacher_loss, [teacher_loss], 'Teacher loss: ')
     self.total_loss = mlm_output.loss + teacher_loss
     self.teacher_loss = teacher_loss
@@ -320,10 +319,10 @@ class AdversarialPretrainingModel(PretrainingModel):
                                  input[seq_len:max_seq_len + offset]], axis = 0)
 
       # # Reverse the sequence to start building the DP table from the end
-      cleaned_action_prob = tf.reverse(cleaned_action_prob, [-1])
-      index_tensor = tf.reverse(index_tensor, [-1])
-      cleaned_input = tf.reverse(cleaned_input, [-1])
-      cleaned_mask = tf.reverse(cleaned_mask, [-1])
+      # cleaned_action_prob = tf.reverse(cleaned_action_prob, [-1])
+      # index_tensor = tf.reverse(index_tensor, [-1])
+      # cleaned_input = tf.reverse(cleaned_input, [-1])
+      # cleaned_mask = tf.reverse(cleaned_mask, [-1])
 
       return (cleaned_action_prob, index_tensor, cleaned_input, cleaned_mask)
 
@@ -586,7 +585,8 @@ def model_fn_builder(config: configure_pretraining.PretrainingConfig):
           mode=mode,
           loss=model.total_loss,
           train_op=train_op,
-          training_hooks=[training_utils.ETAHook(dict(loss=model.mlm_loss, teacher_loss=model.teacher_loss),
+          training_hooks=[training_utils.ETAHook(dict(loss=model.mlm_loss, teacher_loss=model.teacher_loss,
+                                                      reward=model._baseline),
                                                  config.num_train_steps, config.iterations_per_loop,
                                                  config.use_tpu)])
       else:
