@@ -215,9 +215,8 @@ class AdversarialPretrainingModel(PretrainingModel):
     action_prob = teacher_model.get_action_probs() #pi(x_i)
 
     coin_toss = tf.random.uniform([])
-    log_q, masked_inputs = tf.cond(coin_toss < 0.5,
-                             lambda: self._sample_masking_subset(inputs, action_prob),
-                             lambda: self._argmax_subset(inputs, action_prob))
+    update_teacher = tf.less(coin_toss, 0.1)
+    log_q, masked_inputs = self._sample_masking_subset(inputs, action_prob)
 
     # BERT model
     model = self._build_transformer(
@@ -226,20 +225,21 @@ class AdversarialPretrainingModel(PretrainingModel):
     mlm_output = self._get_masked_lm_output(masked_inputs, model)
     self.total_loss = mlm_output.loss
 
+    # Teacher reward is the -log p(x_S|x;B)
+    reward = tf.stop_gradient(tf.reduce_mean(mlm_output.per_example_loss, 1))
+    self._baseline = tf.reduce_mean(reward, -1)
+
     # Calculate teacher loss
-    def compute_teacher_loss(log_q):
-      reward = tf.reduce_mean(mlm_output.per_example_loss, 1)
-      reward = tf.stop_gradient(reward)
-      baseline = tf.reduce_mean(reward, -1)
+    def compute_teacher_loss(log_q, reward, baseline):
       baseline = tf.Print(baseline, [baseline], "Baseline: ")
       reward = tf.Print(reward, [reward], "Reward: ")
-      reward = tf.abs(reward - baseline)
+      reward = tf.stop_gradient(tf.abs(reward - baseline))
       reward = tf.Print(reward, [reward], "abs Reward: ")
       log_q = tf.Print(log_q, [log_q], "log_q: ")
       teacher_loss = tf.reduce_mean(- log_q * reward)
       return teacher_loss
 
-    teacher_loss = tf.cond(coin_toss < 0.5, lambda: compute_teacher_loss(log_q), lambda: tf.constant(0.0))
+    teacher_loss = tf.cond(coin_toss < 0.1, lambda: compute_teacher_loss(log_q, reward, self._baseline), lambda: tf.constant(0.0))
     teacher_loss = tf.Print(teacher_loss, [teacher_loss], 'Teacher loss: ')
     self.total_loss = mlm_output.loss + teacher_loss
     self.teacher_loss = teacher_loss
@@ -320,10 +320,10 @@ class AdversarialPretrainingModel(PretrainingModel):
                                  input[seq_len:max_seq_len + offset]], axis = 0)
 
       # # Reverse the sequence to start building the DP table from the end
-      # cleaned_action_prob = tf.reverse(cleaned_action_prob, [-1])
-      # index_tensor = tf.reverse(index_tensor, [-1])
-      # cleaned_input = tf.reverse(cleaned_input, [-1])
-      # cleaned_mask = tf.reverse(cleaned_mask, [-1])
+      cleaned_action_prob = tf.reverse(cleaned_action_prob, [-1])
+      index_tensor = tf.reverse(index_tensor, [-1])
+      cleaned_input = tf.reverse(cleaned_input, [-1])
+      cleaned_mask = tf.reverse(cleaned_mask, [-1])
 
       return (cleaned_action_prob, index_tensor, cleaned_input, cleaned_mask)
 
@@ -331,8 +331,6 @@ class AdversarialPretrainingModel(PretrainingModel):
     # Remove CLS and SEP action probs
     elems = tf.stack([action_probs, tf.cast(segment_ids, tf.float32),
                       tf.cast(input_ids, tf.float32), tf.cast(input_mask, tf.float32)], 1)
-
-    input_ids.set_shape(input_mask.get_shape())
     cleaned_action_probs, index_tensors, cleaned_inputs, cleaned_input_mask = tf.map_fn(_remove_special_token,
                                                                                         elems,
                                                               dtype=(tf.float32, tf.int32, tf.int32, tf.int32),
@@ -343,35 +341,12 @@ class AdversarialPretrainingModel(PretrainingModel):
     samples, log_q = self._sampling_a_subset(logZ, log_prob, self._config.max_predictions_per_seq)
 
     # Collect masked_lm_ids and masked_lm_positions
-    masked_input = self._apply_masking(inputs, samples, index_tensors, batch_size, max_seq_len)
-    return log_q, masked_input
-
-  def _argmax_subset(self, inputs: pretrain_data.Inputs, output_weights):
-    shape = modeling.get_shape_list(inputs.input_ids, expected_rank=2)
-    batch_size = shape[0]
-    seq_len = shape[1]
-    input_mask = inputs.input_mask
-    output_weights = tf.cast(input_mask, dtype=tf.float32) * output_weights
-    # output_weights = tf.clip_by_value(output_weights, 1e-20, 1.0)
-    # logp = tf.log(output_weights)
-    threshold = tf.expand_dims(tf.math.top_k(output_weights, k=self._config.max_predictions_per_seq).values[:, -1],
-                               -1) * tf.ones_like(input_mask, dtype=tf.float32)
-
-    samples = tf.where(output_weights < threshold,
-                       tf.zeros_like(input_mask, dtype=tf.int32), tf.ones_like(input_mask, dtype=tf.int32))
-    log_q = tf.zeros_like(input_mask, dtype=tf.float32)
-    index_tensors = tf.reshape(tf.tile(tf.range(start=0, limit=seq_len, dtype = tf.int32), [batch_size]),[batch_size, -1])
-    masked_input = self._apply_masking(inputs, samples, index_tensors, batch_size, seq_len)
-    return log_q, masked_input
-
-  def _apply_masking(self, inputs: pretrain_data.Inputs, samples, index_tensors, batch_size, seq_len):
     zero_values = tf.zeros_like(index_tensors, tf.int32)
     selected_position = tf.where(tf.equal(samples, 1), index_tensors, zero_values)
     masked_lm_positions, _ = tf.nn.top_k(selected_position, self._config.max_predictions_per_seq, sorted=False)
-    input_ids = inputs.input_ids
 
     # Get the ids of the masked-out tokens
-    shift = tf.expand_dims(seq_len * tf.range(batch_size), -1)
+    shift = tf.expand_dims(max_seq_len * tf.range(batch_size), -1)
     flat_positions = tf.reshape(masked_lm_positions + shift, [-1, 1])
     masked_lm_ids = tf.gather_nd(tf.reshape(input_ids, [-1]),
                                  flat_positions)
@@ -428,9 +403,9 @@ class AdversarialPretrainingModel(PretrainingModel):
       masked_lm_positions=tf.stop_gradient(masked_lm_positions),
       masked_lm_ids=tf.stop_gradient(masked_lm_ids),
       masked_lm_weights=tf.stop_gradient(masked_lm_weights),
-      tag_ids=inputs.tag_ids
-    )
-    return masked_input
+      tag_ids=inputs.tag_ids)
+
+    return log_q, masked_input
 
   def _calculate_partition_table(self, input_mask, action_prob, max_predictions_per_seq):
     shape = modeling.get_shape_list(action_prob, expected_rank=2)
