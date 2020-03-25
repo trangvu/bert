@@ -319,6 +319,12 @@ class AdversarialPretrainingModel(PretrainingModel):
       cleaned_input = tf.concat([input[1:seg1_len -1], input[seg1_len:seq_len - 1],
                                  input[seq_len:max_seq_len + offset]], axis = 0)
 
+      # # Reverse the sequence to start building the DP table from the end
+      # cleaned_action_prob = tf.reverse(cleaned_action_prob, [-1])
+      # index_tensor = tf.reverse(index_tensor, [-1])
+      # cleaned_input = tf.reverse(cleaned_input, [-1])
+      # cleaned_mask = tf.reverse(cleaned_mask, [-1])
+
       return (cleaned_action_prob, index_tensor, cleaned_input, cleaned_mask)
 
 
@@ -446,14 +452,17 @@ class AdversarialPretrainingModel(PretrainingModel):
       action_prob = tf.cast(input_mask, dtype=tf.float32) * action_prob
       action_prob = tf.clip_by_value(action_prob, 1e-20, 1.0)
       logp = tf.log(action_prob)
+      logp_no = tf.log(1-action_prob)
       accum_logp = tf.cumsum(logp, axis=1, reverse=True)
 
       def accum_cond(j, logZ_j, logb, loga):
         return tf.greater(j, -1)
 
       def accum_body(j, logZ_j, logb, loga):
+        # logb: log_yes = logp[j] + logZ[j+1, k-1] -- already compute
+        # loga: log_no = log(1-p[j]) + logZ[j+1, k]
         logb_j = tf.squeeze(logb[:, j])
-        log_one_minus_p_j = tf.log(1 - tf.exp(logb_j))
+        log_one_minus_p_j = tf.squeeze(logp_no[:, j])
         loga = loga + log_one_minus_p_j
         next_logZ_j = tf.math.reduce_logsumexp(tf.stack([loga, logb_j]), 0)
         logZ_j = logZ_j.write(j, next_logZ_j)
@@ -465,7 +474,7 @@ class AdversarialPretrainingModel(PretrainingModel):
       def dp_body(k, logZ, lastZ):
         '''
         case j < N-k + 1:
-          logZ[j,k] = log_sum(logZ[j+1,k], logp(j) + logZ[j+1,k-1])
+          logZ[j,k] = log_sum( log(1-pi(j)) + logZ[j+1,k], logp(j) + logZ[j+1,k-1])
         case j = N-k + 1
           logZ[j,k] = accum_logp[j]
         case j > N-k + 1
@@ -473,13 +482,12 @@ class AdversarialPretrainingModel(PretrainingModel):
         '''
 
         # shift lastZ one step
-        shifted_lastZ = tf.roll(lastZ[:, :-1], shift=1, axis=1)
+        shifted_lastZ = tf.roll(lastZ[:, :-1], shift=1, axis=1) #logZ[j+1,k-1]
         log_yes = logp + shifted_lastZ  # b x N
         logZ_j = tf.TensorArray(tf.float32, size=seq_len + 1)
-        # minus 1 because of the last token is [SEP]
-        init_value = accum_logp[:, seq_len - k - 1]
-        logZ_j = logZ_j.write(seq_len - k - 1, init_value)
-        _, logZ_j, logb, loga = tf.while_loop(accum_cond, accum_body, [seq_len - k - 2, logZ_j, log_yes, init_value])
+        init_value = accum_logp[:, seq_len - k]
+        logZ_j = logZ_j.write(seq_len - k, init_value)
+        _, logZ_j, logb, loga = tf.while_loop(accum_cond, accum_body, [seq_len - k - 1, logZ_j, log_yes, init_value])
         logZ_j = logZ_j.stack()  # N x b
         logZ_j = tf.transpose(logZ_j, [1, 0])  # b x N
         logZ = logZ.write(k, logZ_j)
