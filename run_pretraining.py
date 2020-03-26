@@ -170,7 +170,8 @@ class PretrainingModel(object):
           input_mask=inputs.input_mask,
           token_type_ids=inputs.segment_ids,
           use_one_hot_embeddings=self._config.use_tpu,
-          scope=name)
+          scope=name,
+          **kwargs)
 
 class AdversarialPretrainingModel(PretrainingModel):
   """Transformer pre-training using the replaced-token-detection task."""

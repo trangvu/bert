@@ -148,6 +148,11 @@ class Preprocessor(object):
 
     def input_fn(params):
       """The actual input function."""
+      if is_training:
+        batch_size = params["train_batch_size"]
+      else:
+        batch_size = params["eval_batch_size"]
+
       d = tf.data.TFRecordDataset(input_file)
       if is_training:
         d = d.repeat()
@@ -155,7 +160,7 @@ class Preprocessor(object):
       return d.apply(
           tf.data.experimental.map_and_batch(
               self._decode_tfrecord,
-              batch_size=params["batch_size"],
+              batch_size=batch_size,
               drop_remainder=True))
 
     return input_fn

@@ -23,6 +23,7 @@ import argparse
 import collections
 import json
 
+import tensorflow
 import tensorflow.compat.v1 as tf
 
 import configure_finetuning
@@ -48,6 +49,11 @@ class FinetuningModel(object):
       bert_config.intermediate_size = 144 * 4
       bert_config.num_attention_heads = 4
     assert config.max_seq_length <= bert_config.max_position_embeddings
+
+    embedding_size = (
+      self.bert_config.hidden_size if config.embedding_size is None else
+      config.embedding_size)
+
     bert_model = modeling.BertModel(
         bert_config=bert_config,
         is_training=is_training,
@@ -55,7 +61,7 @@ class FinetuningModel(object):
         input_mask=features["input_mask"],
         token_type_ids=features["segment_ids"],
         use_one_hot_embeddings=config.use_tpu,
-        embedding_size=config.embedding_size)
+        embedding_size=embedding_size)
     percent_done = (tf.cast(tf.train.get_or_create_global_step(), tf.float32) /
                     tf.cast(num_train_steps, tf.float32))
 
@@ -108,25 +114,21 @@ def model_fn_builder(config: configure_finetuning.FinetuningConfig, tasks,
       train_op = optimization.create_optimizer(
           model.loss, config.learning_rate, num_train_steps,
           weight_decay_rate=config.weight_decay_rate,
-          use_tpu=config.use_tpu,
           warmup_proportion=config.warmup_proportion,
-          layerwise_lr_decay_power=config.layerwise_lr_decay,
           n_transformer_layers=model.bert_config.num_hidden_layers
       )
-      output_spec = tf.estimator.tpu.TPUEstimatorSpec(
+      output_spec = tf.estimator.EstimatorSpec(
           mode=mode,
           loss=model.loss,
           train_op=train_op,
-          scaffold_fn=scaffold_fn,
           training_hooks=[training_utils.ETAHook(
               {} if config.use_tpu else dict(loss=model.loss),
               num_train_steps, config.iterations_per_loop, config.use_tpu, 10)])
     else:
       assert mode == tf.estimator.ModeKeys.PREDICT
-      output_spec = tf.estimator.tpu.TPUEstimatorSpec(
+      output_spec = tf.estimator.EstimatorSpec(
           mode=mode,
-          predictions=utils.flatten_dict(model.outputs),
-          scaffold_fn=scaffold_fn)
+          predictions=utils.flatten_dict(model.outputs))
 
     utils.log("Building complete")
     return output_spec
@@ -143,40 +145,65 @@ class ModelRunner(object):
     self._tasks = tasks
     self._preprocessor = preprocessing.Preprocessor(config, self._tasks)
 
-    is_per_host = tf.estimator.tpu.InputPipelineConfig.PER_HOST_V2
-    tpu_cluster_resolver = None
-    if config.use_tpu and config.tpu_name:
-      tpu_cluster_resolver = tf.distribute.cluster_resolver.TPUClusterResolver(
-          config.tpu_name, zone=config.tpu_zone, project=config.gcp_project)
-    tpu_config = tf.estimator.tpu.TPUConfig(
-        iterations_per_loop=config.iterations_per_loop,
-        num_shards=config.num_tpu_cores,
-        per_host_input_for_training=is_per_host,
-        tpu_job_name=config.tpu_job_name)
-    run_config = tf.estimator.tpu.RunConfig(
-        cluster=tpu_cluster_resolver,
+    num_gpus = utils.get_available_gpus()
+    utils.log("Found {} gpus".format(len(num_gpus)))
+
+    if num_gpus == 1:
+      session_config = tf.ConfigProto(
+        log_device_placement=True,
+        allow_soft_placement=True,
+        gpu_options=tf.GPUOptions(allow_growth=True))
+
+      run_config = tf.estimator.RunConfig(
         model_dir=config.model_dir,
         save_checkpoints_steps=config.save_checkpoints_steps,
-        save_checkpoints_secs=None,
-        tpu_config=tpu_config)
+        # save_checkpoints_secs=3600,
+        # tf_random_seed=FLAGS.seed,
+        session_config=session_config,
+        # keep_checkpoint_max=0,
+        log_step_count_steps=100
+      )
+    else:
+      train_distribution_strategy = tf.distribute.MirroredStrategy(
+        devices=None,
+        cross_device_ops=tensorflow.contrib.distribute.AllReduceCrossDeviceOps('nccl', num_packs=len(num_gpus)))
+      eval_distribution_strategy = tf.distribute.MirroredStrategy(devices=None)
+
+      session_config = tf.ConfigProto(
+        # log_device_placement=True,
+        inter_op_parallelism_threads=0,
+        intra_op_parallelism_threads=0,
+        allow_soft_placement=True,
+        gpu_options=tf.GPUOptions(allow_growth=True))
+
+      run_config = tf.estimator.RunConfig(
+        model_dir=config.model_dir,
+        save_checkpoints_steps=config.save_checkpoints_steps,
+        train_distribute=train_distribution_strategy,
+        eval_distribute=eval_distribution_strategy,
+        # save_checkpoints_secs=3600,
+        # tf_random_seed=FLAGS.seed,
+        session_config=session_config,
+        # keep_checkpoint_max=0,
+        log_step_count_steps=100
+      )
 
     if self._config.do_train:
       (self._train_input_fn,
        self.train_steps) = self._preprocessor.prepare_train()
     else:
       self._train_input_fn, self.train_steps = None, 0
+
     model_fn = model_fn_builder(
         config=config,
         tasks=self._tasks,
         num_train_steps=self.train_steps,
         pretraining_config=pretraining_config)
-    self._estimator = tf.estimator.tpu.TPUEstimator(
-        use_tpu=config.use_tpu,
-        model_fn=model_fn,
-        config=run_config,
-        train_batch_size=config.train_batch_size,
-        eval_batch_size=config.eval_batch_size,
-        predict_batch_size=config.predict_batch_size)
+    self._estimator = tf.estimator.Estimator(
+      model_fn=model_fn,
+      config=run_config,
+      params={'train_batch_size': config.train_batch_size,
+              'eval_batch_size': config.eval_batch_size})
 
   def train(self):
     utils.log("Training for {:} steps".format(self.train_steps))

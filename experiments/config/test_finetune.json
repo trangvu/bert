@@ -1,15 +1,13 @@
 {
-  "pretrain_tfrecords": "/home/vuth0001/workspace/2019-bert-selective-masking/temp/corpus-tf/pretrain_data.tfrecord*",
-  "num_train_steps": 5000,
   "vocab_file": "/home/vuth0001/workspace/2019-bert-selective-masking/adversarial/bert/config/test_vocab.txt",
   "max_seq_length": 64,
   "vocab_size": 10000,
-  "masking_strategy": "adv",
   "save_checkpoints_steps": 500,
   "debug": true,
-  "task_names": ["rte"],
-  "init_checkpoint": ,
+  "task_names": ["sts"],
+  "init_checkpoint": "/home/vuth0001/workspace/2019-bert-selective-masking/temp/test23/models/test",
   "num_trials": 2,
-  "learning_rate": ,
-  "train_batch_size": ,
+  "train_batch_size": 8,
+  "write_test_outputs": true,
+  "model_dir": "/home/vuth0001/workspace/2019-bert-selective-masking/temp/test23/finetune"
 }
