@@ -3,7 +3,6 @@
 #SBATCH --ntasks=12
 #SBATCH --ntasks-per-node=12
 #SBATCH --cpus-per-task=1
-#SBATCH --partition=short
 #SBATCH --mem-per-cpu=4096
 #SBATCH --time=2-00:00:00
 #SBATCH --mail-type=BEGIN,END,FAIL
@@ -31,4 +30,4 @@ cd $SRC_PATH && python3 build_pretraining_dataset.py \
     --num-processes=12 \
     --blanks-separate-docs=False \
     --do-lower-case \
-    --num-out-files=50
+    --num-out-files=500
