@@ -229,7 +229,7 @@ def write_examples(job_id, args):
   random.shuffle(fnames)
   start_time = time.time()
   for file_no, fname in enumerate(fnames):
-    if file_no > 0:
+    if file_no >= 0:
       elapsed = time.time() - start_time
       log("processed {:}/{:} files ({:.1f}%), ELAPSED: {:}s, ETA: {:}s, "
           "{:} examples written".format(

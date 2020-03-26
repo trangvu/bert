@@ -3,10 +3,10 @@ import os
 from collections import namedtuple, Set
 
 additional_data="/scratch/da33/trang/maskedlm/data/pubmed/sim/pubmed-04.txt"
-origin_data="/home/vuth0001/workspace/2019-bert-selective-masking/adversarial/bert/ner/data/twitter_train.txt"
-output_data="/home/vuth0001/workspace/2019-bert-selective-masking/data/twitter/trainingandtestdata/sim_wnut.txt"
-rest_data="/home/vuth0001/workspace/2019-bert-selective-masking/data/twitter/trainingandtestdata/rand_wnut.txt"
-num_sent=250000
+origin_data="/home/xvuthith/da33_scratch/trang/masked-lm/data/blue/data/ddi2013-type/train_da.txt"
+output_data="/home/xvuthith/da33_scratch/trang/masked-lm/data/blue/data/ddi2013-type/sim_da.txt"
+rest_data="/home/xvuthith/da33_scratch/trang/masked-lm/data/blue/data/ddi2013-type/rand_da.txt"
+num_sent=10000
 
 def _read_words(filename):
   with open(filename, "r") as f:
