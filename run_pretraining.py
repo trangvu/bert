@@ -239,7 +239,7 @@ class AdversarialPretrainingModel(PretrainingModel):
       return teacher_loss
 
     teacher_loss = tf.cond(coin_toss < 0.5, lambda: compute_teacher_loss(log_q, reward, self._baseline), lambda: tf.constant(0.0))
-    teacher_loss = tf.Print(teacher_loss, [teacher_loss], 'Teacher loss: ')
+    # teacher_loss = tf.Print(teacher_loss, [teacher_loss], 'Teacher loss: ')
     self.total_loss = mlm_output.loss + teacher_loss
     self.teacher_loss = teacher_loss
     self.mlm_loss = mlm_output.loss
@@ -291,21 +291,20 @@ class AdversarialPretrainingModel(PretrainingModel):
 
     def _remove_special_token(elems):
       action_prob = tf.cast(elems[0], tf.float32)
-      action_prob = tf.concat([action_prob,[0.0]], axis  = 0)
+      # action_prob = tf.concat([action_prob,[0.0]], axis  = 0)
       segment = tf.cast(elems[1], tf.int32)
-      segment = tf.concat([segment,[0]], axis = 0)
+      # segment = tf.concat([segment,[0]], axis = 0)
       input = tf.cast(elems[2], tf.int32)
-      input = tf.concat([input,[0]], axis = 0)
+      # input = tf.concat([input,[0]], axis = 0)
       mask = tf.cast(elems[3], tf.int32)
-      mask = tf.concat([mask,[0]], axis = 0)
+      # mask = tf.concat([mask,[0]], axis = 0)
 
       seq_len = tf.reduce_sum(mask)
       seg1_len = seq_len - tf.reduce_sum(segment)
       seq1_idx = tf.range(start=1, limit=seg1_len-1, dtype = tf.int32)
       seq2_limit = tf.math.maximum(seg1_len, seq_len - 1)
       seq2_idx = tf.range(start=seg1_len, limit=seq2_limit, dtype = tf.int32)
-      offset = tf.cast(tf.greater(seq_len, seg1_len), tf.int32)
-      mask_idx = tf.range(start=seq_len, limit=max_seq_len + offset, dtype = tf.int32)
+      mask_idx = tf.range(start=seq_len, limit=max_seq_len, dtype = tf.int32)
       index_tensor = tf.concat([seq1_idx, seq2_idx, mask_idx], axis = 0)
 
       seq1_prob = action_prob[1:seg1_len - 1]
@@ -313,10 +312,16 @@ class AdversarialPretrainingModel(PretrainingModel):
       mask_prob = tf.ones_like(mask_idx, dtype=tf.float32) * 1e-20
       cleaned_action_prob = tf.concat([seq1_prob, seq2_prob, mask_prob], axis = 0)
       cleaned_mask = tf.concat([mask[1:seg1_len -1], mask[seg1_len:seq_len - 1],
-                                mask[seq_len:max_seq_len + offset]], axis = 0)
+                                mask[seq_len:max_seq_len]], axis = 0)
 
       cleaned_input = tf.concat([input[1:seg1_len -1], input[seg1_len:seq_len - 1],
-                                 input[seq_len:max_seq_len + offset]], axis = 0)
+                                 input[seq_len:max_seq_len ]], axis = 0)
+
+      cleaned_action_prob = cleaned_action_prob[0:max_seq_len - 3]
+      index_tensor = index_tensor[0:max_seq_len - 3]
+      cleaned_input = cleaned_input[0:max_seq_len - 3]
+      cleaned_mask = cleaned_mask[0:max_seq_len - 3]
+
 
       # # Reverse the sequence to start building the DP table from the end
       # cleaned_action_prob = tf.reverse(cleaned_action_prob, [-1])
