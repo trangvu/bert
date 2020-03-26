@@ -230,11 +230,11 @@ class AdversarialPretrainingModel(PretrainingModel):
 
     # Calculate teacher loss
     def compute_teacher_loss(log_q, reward, baseline):
-      baseline = tf.Print(baseline, [baseline], "Baseline: ")
-      reward = tf.Print(reward, [reward], "Reward: ")
-      reward = tf.stop_gradient(tf.abs(reward - baseline))
-      reward = tf.Print(reward, [reward], "abs Reward: ")
-      log_q = tf.Print(log_q, [log_q], "log_q: ")
+      # baseline = tf.Print(baseline, [baseline], "Baseline: ")
+      # reward = tf.Print(reward, [reward], "Reward: ")
+      # reward = tf.stop_gradient(tf.abs(reward - baseline))
+      # reward = tf.Print(reward, [reward], "abs Reward: ")
+      # log_q = tf.Print(log_q, [log_q], "log_q: ")
       teacher_loss = tf.reduce_mean(- log_q * reward)
       return teacher_loss
 
@@ -540,8 +540,8 @@ class AdversarialPretrainingModel(PretrainingModel):
 
       subset = subset.stack()  # K x b x N
       subset = tf.transpose(subset, [1, 0])
-      partition = logZ[:, 0, -1]
-      log_q = log_q - partition
+      # partition = logZ[:, 0, -1]
+      # log_q = log_q - partition
     return subset, log_q
 
 

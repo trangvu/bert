@@ -61,10 +61,6 @@ class FinetuningModel(object):
 
     # Add specific tasksimport logging
 
-logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
-                    datefmt='%m/%d/%Y %H:%M:%S',
-                    level=logging.INFO)
-logger = logging.getLogger(__name__)
     self.outputs = {"task_id": features["task_id"]}
     losses = []
     for task in tasks:
