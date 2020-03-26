@@ -34,4 +34,4 @@ cd $SRC_PATH && python3 build_pretraining_dataset.py \
     --num-processes=12 \
     --blanks-separate-docs=True \
     --do-lower-case \
-    --num-out-files=1000
+    --num-out-files=50
