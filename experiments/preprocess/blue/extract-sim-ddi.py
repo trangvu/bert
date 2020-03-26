@@ -2,7 +2,7 @@ import collections
 import os
 from collections import namedtuple, Set
 
-additional_data="/scratch/da33/trang/maskedlm/data/pubmed/sim/pubmed-04.txt"
+additional_data="/scratch/da33/trang/masked-lm/data/pubmed/sim/pubmed-04.txt"
 origin_data="/home/xvuthith/da33_scratch/trang/masked-lm/data/blue/data/ddi2013-type/train_da.txt"
 output_data="/home/xvuthith/da33_scratch/trang/masked-lm/data/blue/data/ddi2013-type/sim_da.txt"
 rest_data="/home/xvuthith/da33_scratch/trang/masked-lm/data/blue/data/ddi2013-type/rand_da.txt"
