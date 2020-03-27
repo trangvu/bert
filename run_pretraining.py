@@ -607,7 +607,7 @@ def model_fn_builder(config: configure_pretraining.PretrainingConfig):
           mode=mode,
           loss=model.total_loss,
           train_op=train_op,
-          training_hooks=[training_utils.ETAHook(dict(loss=model.mlm_loss),
+          training_hooks=[training_utils.ETAHook(dict(loss=model.total_loss),
               config.num_train_steps, config.iterations_per_loop,
               config.use_tpu)])
     elif mode == tf.estimator.ModeKeys.EVAL:
