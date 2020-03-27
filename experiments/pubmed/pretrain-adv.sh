@@ -1,6 +1,6 @@
 #!/bin/bash
 
-ROOT_DIR=`/scratch/da33/trang/masked-lm`
+ROOT_DIR="/scratch/da33/trang/masked-lm"
 SRC_PATH=$ROOT_DIR'/bert'
 DATA_ROOT=$ROOT_DIR'/train'
 
