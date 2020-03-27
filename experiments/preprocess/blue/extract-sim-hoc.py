@@ -85,7 +85,6 @@ for sent in additional_sents:
 indices=sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)
 selected_indices = indices[0:num_sent]
 rest_indices = indices[num_sent:-1]
-selected_sents = additional_sents[selected_indices]
 with open(output_data, 'w') as fout:
     for i in selected_indices:
         tokens = additional_sents[i]
