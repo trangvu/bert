@@ -8,5 +8,6 @@
   "train_batch_size": 32,
   "eval_batch_size":32,
   "init_checkpoint": "/scratch/da33/trang/masked-lm/models/bert_base_uncased/bert_model.ckpt",
-  "masking_strategy": "adv"
+  "masking_strategy": "adv",
+  "debug": true
 }

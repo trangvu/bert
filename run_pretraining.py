@@ -35,11 +35,11 @@ class PretrainingModel(object):
     # Set up model config
     self._config = config
     self._bert_config = training_utils.get_bert_config(config)
-    if config.debug:
-      self._bert_config.num_hidden_layers = 3
-      self._bert_config.hidden_size = 144
-      self._bert_config.intermediate_size = 144 * 4
-      self._bert_config.num_attention_heads = 4
+    # if config.debug:
+    #   self._bert_config.num_hidden_layers = 3
+    #   self._bert_config.hidden_size = 144
+    #   self._bert_config.intermediate_size = 144 * 4
+    #   self._bert_config.num_attention_heads = 4
 
     embedding_size = (
       self._bert_config.hidden_size if config.embedding_size is None else
@@ -183,15 +183,15 @@ class AdversarialPretrainingModel(PretrainingModel):
     self._bert_config = training_utils.get_bert_config(config)
     self._teacher_config = training_utils.get_teacher_config(config)
 
-    if config.debug:
-      self._bert_config.num_hidden_layers = 3
-      self._bert_config.hidden_size = 144
-      self._bert_config.intermediate_size = 144 * 4
-      self._bert_config.num_attention_heads = 4
-      self._teacher_config.num_hidden_layers = 3
-      self._teacher_config.hidden_size = 144
-      self._teacher_config.intermediate_size = 144 * 4
-      self._teacher_config.num_attention_heads = 4
+    # if config.debug:
+    #   self._bert_config.num_hidden_layers = 3
+    #   self._bert_config.hidden_size = 144
+    #   self._bert_config.intermediate_size = 144 * 4
+    #   self._bert_config.num_attention_heads = 4
+    #   self._teacher_config.num_hidden_layers = 3
+    #   self._teacher_config.hidden_size = 144
+    #   self._teacher_config.intermediate_size = 144 * 4
+    #   self._teacher_config.num_attention_heads = 4
 
     embedding_size = (
       self._bert_config.hidden_size if config.embedding_size is None else
