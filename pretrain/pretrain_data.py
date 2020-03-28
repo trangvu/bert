@@ -127,12 +127,12 @@ def get_updated_inputs(inputs, **kwargs):
   return features_to_inputs(features)
 
 
-ENDC = "\033[0m"
-COLORS = ["\033[" + str(n) + "m" for n in list(range(91, 97)) + [90]]
-RED = COLORS[0]
-BLUE = COLORS[3]
-CYAN = COLORS[5]
-GREEN = COLORS[1]
+# ENDC = "\033[0m"
+# COLORS = ["\033[" + str(n) + "m" for n in list(range(91, 97)) + [90]]
+# RED = COLORS[0]
+# BLUE = COLORS[3]
+# CYAN = COLORS[5]
+# GREEN = COLORS[1]
 
 
 def print_tokens(inputs: Inputs, inv_vocab, updates_mask=None):
@@ -158,12 +158,12 @@ def print_tokens(inputs: Inputs, inv_vocab, updates_mask=None):
     if token == "[PAD]":
       break
     if pos in pos_to_tokid:
-      token = RED + token + " (" + inv_vocab[pos_to_tokid[pos]] + ")" + ENDC
+      token = token + " (" + inv_vocab[pos_to_tokid[pos]] + ")"
       if provided_update_mask:
         assert um == 1
     else:
       if provided_update_mask:
         assert um == 0
-    tag_print = GREEN + " _" + NAMES[tag] + "_ " + ENDC
+    tag_print = " _" + NAMES[tag] + "_ "
     text += token + tag_print + " "
   utils.log(tokenization.printable_text(text))
