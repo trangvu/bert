@@ -315,9 +315,7 @@ def run_finetuning(config: configure_finetuning.FinetuningConfig):
               model_runner.write_classification_outputs([task], trial, split)
           elif task.name == "biosses":
               scorer = model_runner.evaluate_task(task, "test", False)
-              results.append(dict(scorer.get_results()))
               utils.log(task.name + " - test set: " + scorer.results_str())
-              write_results(config, results)
               scorer.write_predictions()
           elif task.name == "squad":
             scorer = model_runner.evaluate_task(task, "test", False)
