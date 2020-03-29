@@ -528,7 +528,7 @@ class HOC(ClassificationTask):
     else:
       return self._load_data(lines, split, 1, None, 0, True)
 
-  def _add_features(self, features, example, log):
+  def _add_features(self, features, example, log=True):
     label_map = {}
     for (i, label) in enumerate(self._label_list):
       label_map[label] = i
@@ -578,6 +578,11 @@ class HOC(ClassificationTask):
         eid=features[self.name + "_eid"],
     )
     return loss, outputs
+
+  def get_feature_specs(self):
+    num_labels = len(self._label_list)
+    return [feature_spec.FeatureSpec(self.name + "_eid", []),
+            feature_spec.FeatureSpec(self.name + "_label_ids", [num_labels])]
 
   def get_scorer(self):
     return classification_metrics.F1Scorer()

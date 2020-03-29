@@ -317,7 +317,7 @@ def run_finetuning(config: configure_finetuning.FinetuningConfig):
                            "sts"]:
             for split in task.get_test_splits():
               model_runner.write_classification_outputs([task], trial, split)
-          elif task.name == "biosses":
+          elif task.name in ["biosses", "ddi", "chemprot", "hoc", "chem", "disease"]:
               scorer = model_runner.evaluate_task(task, "test", False)
               utils.log(task.name + " - test set: " + scorer.results_str())
           elif task.name == "squad":
