@@ -16,7 +16,7 @@ model_prefix=$3
 DATA_DIR=$ROOT_DIR/data/blue/bert_data
 CONFIG_JSON=$SRC_PATH/experiments/config/blue
 
-cd $SRC_PATH && python3 run_finetraining.py \
+cd $SRC_PATH && python3 run_finetuning.py \
 --data-dir=$DATA_DIR \
 --hparams=$CONFIG_JSON/finetune_biosses.json \
 --model-name='biosses'$model_prefix'-'$MASK_STRATEGY \
