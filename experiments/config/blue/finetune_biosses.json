@@ -9,6 +9,5 @@
   "write_test_outputs": true,
   "model_size": "base",
   "num_train_epochs": 30,
-  "learning_rate": 1e-5,
-  "model_dir": "/scratch/da33/trang/masked-lm/models"
+  "learning_rate": 1e-5
 }

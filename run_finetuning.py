@@ -232,7 +232,7 @@ class ModelRunner(object):
         r = utils.nest_dict(r, self._config.task_names)
         scorer.update(r[task.name])
     if return_results:
-      utils.log(task.name + ": " + scorer.results_str())
+      utils.log(task.name + '-' + split + ": " + scorer.results_str())
       utils.log()
       return dict(scorer.get_results())
     else:
