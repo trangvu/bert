@@ -90,7 +90,7 @@ class FinetuningConfig(object):
     # default locations of data files
     self.data_dir = data_dir
     pretrained_model_dir = os.path.join(data_dir, "models", model_name)
-    self.raw_data_dir = os.path.join(data_dir, "finetuning_data", "{:}").format
+    self.raw_data_dir = os.path.join(data_dir, "{:}").format
     self.vocab_file = os.path.join(pretrained_model_dir, "vocab.txt")
     if not tf.io.gfile.exists(self.vocab_file):
       self.vocab_file = os.path.join(self.data_dir, "vocab.txt")

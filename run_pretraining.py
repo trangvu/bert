@@ -236,7 +236,7 @@ class AdversarialPretrainingModel(PretrainingModel):
       # reward = tf.stop_gradient(tf.abs(reward - baseline))
       # reward = tf.Print(reward, [reward], "abs Reward: ")
       # log_q = tf.Print(log_q, [log_q], "log_q: ")
-      teacher_loss = tf.reduce_mean(- log_q * reward)
+      teacher_loss = tf.reduce_mean(log_q * reward)
       return teacher_loss
 
     teacher_loss = tf.cond(coin_toss < 0.5, lambda: compute_teacher_loss(log_q, reward, self._baseline), lambda: tf.constant(0.0))

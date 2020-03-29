@@ -213,6 +213,9 @@ class ModelRunner(object):
   def evaluate(self):
     return {task.name: self.evaluate_task(task) for task in self._tasks}
 
+  def test(self):
+    return {task.name: self.evaluate_task(task, split="test") for task in self._tasks}
+
   def evaluate_task(self, task, split="dev", return_results=True):
     """Evaluate the current model."""
     utils.log("Evaluating", task.name)
@@ -310,6 +313,12 @@ def run_finetuning(config: configure_finetuning.FinetuningConfig):
                            "sts"]:
             for split in task.get_test_splits():
               model_runner.write_classification_outputs([task], trial, split)
+          elif task.name == "biosses":
+              scorer = model_runner.evaluate_task(task, "test", True)
+              results.append(dict(scorer.get_results()))
+              utils.log(task.name + " - test set: " + scorer.results_str())
+              write_results(config, results)
+              scorer.write_predictions()
           elif task.name == "squad":
             scorer = model_runner.evaluate_task(task, "test", False)
             scorer.write_predictions()

@@ -437,3 +437,32 @@ class STS(RegressionTask):
       examples += self._load_glue(
           lines, split, -3, -2, -1, True, len(examples), True)
     return examples
+
+class Biosses(RegressionTask):
+  """Semantic Textual Similarity."""
+
+  def __init__(self, config: configure_finetuning.FinetuningConfig, tokenizer):
+    super(Biosses, self).__init__(config, "biosses", tokenizer, 0.0, 5.0)
+
+  def _create_examples(self, lines, split):
+    examples = []
+    if split == "test":
+      examples += self._load_glue(lines, split, -2, -1, None, True)
+    else:
+      examples += self._load_glue(lines, split, -3, -2, -1, True)
+    if self.config.double_unordered and split == "train":
+      examples += self._load_glue(
+          lines, split, -3, -2, -1, True, len(examples), True)
+    return examples
+
+class HOC(ClassificationTask):
+  """Hallmarks of Cancers."""
+
+  def __init__(self, config: configure_finetuning.FinetuningConfig, tokenizer):
+    super(HOC, self).__init__(config, "hoc", tokenizer, ["0", "1"])
+
+  def _create_examples(self, lines, split):
+    if "test" in split:
+      return self._load_glue(lines, split, 1, None, None, True)
+    else:
+      return self._load_glue(lines, split, 0, None, 1, True)

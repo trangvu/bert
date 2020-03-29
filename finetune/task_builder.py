@@ -66,5 +66,15 @@ def get_task(config: configure_finetuning.FinetuningConfig, task_name,
     return qa_tasks.SearchQA(config, tokenizer)
   elif task_name == "chunk":
     return tagging_tasks.Chunking(config, tokenizer)
+  elif task_name == "biosses":
+    return classification_tasks.Biosses(config, tokenizer)
+  elif task_name == "bc5cdr":
+    return tagging_tasks.NER(config, tokenizer)
+  elif task_name == "hoc":
+    return classification_tasks.HOC(config, tokenizer)
+  elif task_name == "ddi":
+    return classification_tasks.DDI(config, tokenizer)
+  elif task_name == "chemprot":
+    return classification_tasks.ChemProt(config, tokenizer)
   else:
     raise ValueError("Unknown task " + task_name)

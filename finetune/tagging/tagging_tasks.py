@@ -251,3 +251,8 @@ class Chunking(TaggingTask):
 
   def __init__(self, config, tokenizer):
     super(Chunking, self).__init__(config, "chunk", tokenizer, False)
+
+class NER(TaggingTask):
+  """NER task"""
+  def __init__(self, config, tokenizer):
+    super(NER, self).__init__(config, "ner", tokenizer, False)

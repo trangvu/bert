@@ -1,0 +1,12 @@
+{
+  "vocab_file": "/home/trang/workspace/maskedlm/new-bert/config/test_vocab.txt",
+  "max_seq_length": 128,
+  "save_checkpoints_steps": 50,
+  "task_names": ["biosses"],
+  "init_checkpoint": "/home/trang/workspace/maskedlm/models/bert_base_uncase",
+  "num_trials": 1,
+  "train_batch_size": 8,
+  "write_test_outputs": true,
+  "model_size": "base",
+  "model_dir": "/home/trang/workspace/maskedlm/new-bert/tmp/models/test/finetune"
+}
