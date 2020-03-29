@@ -8,7 +8,7 @@
   "eval_batch_size": 8,
   "write_test_outputs": true,
   "model_size": "base",
-  "num_train_epochs": 3,
-  "learning_rate": 1e-4,
+  "num_train_epochs": 30,
+  "learning_rate": 1e-5,
   "model_dir": "/scratch/da33/trang/masked-lm/models"
 }

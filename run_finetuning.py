@@ -99,6 +99,7 @@ def model_fn_builder(config: configure_finetuning.FinetuningConfig, tasks,
     tvars = tf.trainable_variables()
     scaffold_fn = None
     if init_checkpoint:
+      utils.log("Using checkpoint", init_checkpoint)
       assignment_map, _ = modeling.get_assignment_map_from_checkpoint(
           tvars, init_checkpoint)
       if config.use_tpu:
@@ -316,7 +317,6 @@ def run_finetuning(config: configure_finetuning.FinetuningConfig):
           elif task.name == "biosses":
               scorer = model_runner.evaluate_task(task, "test", False)
               utils.log(task.name + " - test set: " + scorer.results_str())
-              scorer.write_predictions()
           elif task.name == "squad":
             scorer = model_runner.evaluate_task(task, "test", False)
             scorer.write_predictions()

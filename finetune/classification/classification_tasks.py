@@ -430,7 +430,7 @@ class STS(RegressionTask):
   def _create_examples(self, lines, split):
     examples = []
     if split == "test":
-      examples += self._load_glue(lines, split, -2, -1, None, True)
+      examples += self._load_glue(lines, split, -3, -2, -1, True)
     else:
       examples += self._load_glue(lines, split, -3, -2, -1, True)
     if self.config.double_unordered and split == "train":
@@ -460,23 +460,26 @@ class ChemProt(ClassificationTask):
 
   def __init__(self, config: configure_finetuning.FinetuningConfig, tokenizer):
     super(ChemProt, self).__init__(config, "chemprot", tokenizer,
-                               ["contradiction", "entailment", "neutral"])
-
-  def get_examples(self, split):
-    if split == "dev":
-      split += "_matched"
-    return self._create_examples(read_tsv(
-        os.path.join(self.config.raw_data_dir(self.name), split + ".tsv"),
-        max_lines=100 if self.config.debug else None), split)
+                               ["CPR:3", "CPR:4", "CPR:5", "CPR:6", "CPR:9", "false"])
 
   def _create_examples(self, lines, split):
-    if split == "diagnostic":
-      return self._load_glue(lines, split, 1, 2, None, True)
+    if split == "test":
+      return self._load_glue(lines, split, 1, None, 2, True)
     else:
-      return self._load_glue(lines, split, 8, 9, -1, True)
+      return self._load_glue(lines, split, 1, None, 2, True)
 
-  def get_test_splits(self):
-    return ["test_matched", "test_mismatched", "diagnostic"]
+class DDI(ClassificationTask):
+  """Multi-NLI."""
+
+  def __init__(self, config: configure_finetuning.FinetuningConfig, tokenizer):
+    super(DDI, self).__init__(config, "ddi", tokenizer,
+                               ["DDI-advise", "DDI-effect", "DDI-int", "DDI-mechanism", 'DDI-false'])
+
+  def _create_examples(self, lines, split):
+    if split == "test":
+      return self._load_glue(lines, split, 1, None, 2, True)
+    else:
+      return self._load_glue(lines, split, 1, None, 2, True)
 
 class HOC(ClassificationTask):
   """Hallmarks of Cancers."""
