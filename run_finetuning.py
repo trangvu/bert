@@ -342,6 +342,8 @@ def main():
                       help="Location of data files (model weights, etc).")
   parser.add_argument("--model-name", required=True,
                       help="The name of the model being fine-tuned.")
+  parser.add_argument("--init-checkpoint", required=False,
+                      help="Init checkpoint.")
   parser.add_argument("--hparams", default="{}",
                       help="JSON dict of model hyperparameters.")
   args = parser.parse_args()
@@ -351,7 +353,7 @@ def main():
     hparams = json.loads(args.hparams)
   tf.logging.set_verbosity(tf.logging.ERROR)
   run_finetuning(configure_finetuning.FinetuningConfig(
-      args.model_name, args.data_dir, **hparams))
+      args.model_name, args.data_dir, args.init_checkpoint, **hparams))
 
 
 if __name__ == "__main__":

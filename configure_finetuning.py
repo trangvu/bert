@@ -15,7 +15,7 @@ import tensorflow.compat.v1 as tf
 class FinetuningConfig(object):
   """Fine-tuning hyperparameters."""
 
-  def __init__(self, model_name, data_dir, **kwargs):
+  def __init__(self, model_name, data_dir, init_checkpoint=None, **kwargs):
     # general
     self.model_name = model_name
     self.debug = False  # debug mode for quickly running things
@@ -96,7 +96,7 @@ class FinetuningConfig(object):
       self.vocab_file = os.path.join(self.data_dir, "vocab.txt")
     task_names_str = ",".join(
         kwargs["task_names"] if "task_names" in kwargs else self.task_names)
-    self.init_checkpoint = None if self.debug else pretrained_model_dir
+    self.init_checkpoint = init_checkpoint
     self.model_dir = os.path.join(pretrained_model_dir, "finetuning_models",
                                   task_names_str + "_model")
     results_dir = os.path.join(pretrained_model_dir, "results")

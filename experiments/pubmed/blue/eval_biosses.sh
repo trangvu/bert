@@ -20,4 +20,4 @@ cd $SRC_PATH && python3 run_finetuning.py \
 --data-dir=$DATA_DIR \
 --hparams=$CONFIG_JSON/finetune_biosses.json \
 --model-name='biosses'$model_prefix'-'$MASK_STRATEGY \
---hparams '{"init_checkpoint": ''"'$CHECKPOINT'"''}'
+--init-checkpoint=$CHECKPOINT
