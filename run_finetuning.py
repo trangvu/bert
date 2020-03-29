@@ -98,17 +98,20 @@ def model_fn_builder(config: configure_finetuning.FinetuningConfig, tasks,
       utils.log("Using checkpoint", init_checkpoint)
     tvars = tf.trainable_variables()
     scaffold_fn = None
+    initialized_variable_names = {}
     if init_checkpoint:
       utils.log("Using checkpoint", init_checkpoint)
-      assignment_map, _ = modeling.get_assignment_map_from_checkpoint(
+      assignment_map, initialized_variable_names = modeling.get_assignment_map_from_checkpoint(
           tvars, init_checkpoint)
-      if config.use_tpu:
-        def tpu_scaffold():
-          tf.train.init_from_checkpoint(init_checkpoint, assignment_map)
-          return tf.train.Scaffold()
-        scaffold_fn = tpu_scaffold
-      else:
-        tf.train.init_from_checkpoint(init_checkpoint, assignment_map)
+      tf.train.init_from_checkpoint(init_checkpoint, assignment_map)
+
+    utils.log("**** Trainable Variables ****")
+    for var in tvars:
+      init_string = ""
+      if var.name in initialized_variable_names:
+        init_string = ", *INIT_FROM_CKPT*"
+      utils.log("  name = %s, shape = %s%s", var.name, var.shape,
+                init_string)
 
     # Build model for training or prediction
     if mode == tf.estimator.ModeKeys.TRAIN:

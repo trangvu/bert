@@ -176,6 +176,33 @@ class SingleOutputTask(task.Task):
         utils.log("Input causing the error:", line)
     return examples
 
+  def _load_data(self, lines, split, text_a_loc, text_b_loc, label_loc,
+                 skip_first_line=False, eid_offset=0, swap=False):
+    examples = []
+    for (i, line) in enumerate(lines):
+      try:
+        if i == 0 and skip_first_line:
+          continue
+        eid = i - (1 if skip_first_line else 0) + eid_offset
+        text_a = tokenization.convert_to_unicode(line[text_a_loc])
+        if text_b_loc is None:
+          text_b = None
+        else:
+          text_b = tokenization.convert_to_unicode(line[text_b_loc])
+        if label_loc is None:
+          label = self._get_dummy_label()
+        else:
+          label = tokenization.convert_to_unicode(line[label_loc])
+        if swap:
+          text_a, text_b = text_b, text_a
+        examples.append(InputExample(eid=eid, task_name=self.name,
+                                     text_a=text_a, text_b=text_b, label=label))
+      except Exception as ex:
+        utils.log("Error constructing example from line", i,
+                  "for task", self.name + ":", ex)
+        utils.log("Input causing the error:", line)
+    return examples
+
   @abc.abstractmethod
   def _get_dummy_label(self):
     pass
@@ -447,11 +474,11 @@ class Biosses(RegressionTask):
   def _create_examples(self, lines, split):
     examples = []
     if split == "test":
-      examples += self._load_glue(lines, split, -3, -2, -1, True)
+      examples += self._load_data(lines, split, -3, -2, -1, True)
     else:
-      examples += self._load_glue(lines, split, -3, -2, -1, True)
+      examples += self._load_data(lines, split, -3, -2, -1, True)
     if self.config.double_unordered and split == "train":
-      examples += self._load_glue(
+      examples += self._load_data(
           lines, split, -3, -2, -1, True, len(examples), True)
     return examples
 
@@ -464,9 +491,9 @@ class ChemProt(ClassificationTask):
 
   def _create_examples(self, lines, split):
     if split == "test":
-      return self._load_glue(lines, split, 1, None, 2, True)
+      return self._load_data(lines, split, 1, None, 2, True)
     else:
-      return self._load_glue(lines, split, 1, None, 2, True)
+      return self._load_data(lines, split, 1, None, 2, True)
 
 class DDI(ClassificationTask):
   """Multi-NLI."""
@@ -477,18 +504,80 @@ class DDI(ClassificationTask):
 
   def _create_examples(self, lines, split):
     if split == "test":
-      return self._load_glue(lines, split, 1, None, 2, True)
+      return self._load_data(lines, split, 1, None, 2, True)
     else:
-      return self._load_glue(lines, split, 1, None, 2, True)
+      return self._load_data(lines, split, 1, None, 2, True)
 
 class HOC(ClassificationTask):
   """Hallmarks of Cancers."""
 
   def __init__(self, config: configure_finetuning.FinetuningConfig, tokenizer):
-    super(HOC, self).__init__(config, "hoc", tokenizer, ["0", "1"])
+    # label list
+    label_list = []
+    # num_aspect=FLAGS.num_aspects
+    aspect_value_list = [0, 1]  # [-2,-1,0,1]
+    self._num_aspects = 10
+    for i in range(self._num_aspects):
+      for value in aspect_value_list:
+        label_list.append(str(i) + "_" + str(value))
+    super(HOC, self).__init__(config, "hoc", tokenizer, label_list)
 
   def _create_examples(self, lines, split):
     if "test" in split:
-      return self._load_glue(lines, split, 1, None, None, True)
+      return self._load_data(lines, split, 1, None, 0, True)
     else:
-      return self._load_glue(lines, split, 0, None, 1, True)
+      return self._load_data(lines, split, 1, None, 0, True)
+
+  def _add_features(self, features, example, log):
+    label_map = {}
+    for (i, label) in enumerate(self._label_list):
+      label_map[label] = i
+    if "," in example.label:  # multiple label
+      # get list of label
+      label_id_list = []
+      label_list = example.label.split(",")
+      for label_ in label_list:
+        try:
+          label_id_list.append(label_map[label_])
+        except:
+          tf.logging.error(label_)
+          tf.logging.error(label_map)
+          exit(1)
+      # print("label_id_list:",label_id_list)
+      # convert to multi-hot style
+      label_id = [0 for l in range(len(label_map))]
+      for j, label_index in enumerate(label_id_list):
+        label_id[label_index] = 1
+    else:  # single label
+      label_id = label_map[example.label]
+    if log:
+      utils.log("    label: {:} (id = {:})".format(example.label, label_id))
+    features[example.task_name + "_label_ids"] = label_id
+
+  def get_prediction_module(self, bert_model, features, is_training,
+                            percent_done):
+    num_labels = len(self._label_list)
+    reprs = bert_model.get_pooled_output()
+    if is_training:
+      reprs = tf.nn.dropout(reprs, keep_prob=0.9)
+
+    logits = tf.layers.dense(reprs, num_labels)
+
+    probabilities = tf.nn.sigmoid(logits)
+    # log_probs=tf.log(probabilities)
+    label_ids = features[self.name + "_label_ids"]
+    labels = tf.cast(label_ids, tf.float32)
+    per_example_loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=labels, logits=logits)
+    loss = tf.reduce_mean(per_example_loss)
+
+    outputs = dict(
+        loss=loss,
+        logits=logits,
+        predictions=tf.argmax(probabilities, axis=-1),
+        label_ids=label_ids,
+        eid=features[self.name + "_eid"],
+    )
+    return loss, outputs
+
+  def get_scorer(self):
+    return classification_metrics.F1Scorer()
