@@ -430,7 +430,7 @@ class STS(RegressionTask):
   def _create_examples(self, lines, split):
     examples = []
     if split == "test":
-      examples += self._load_glue(lines, split, -3, -2, -1, True)
+      examples += self._load_glue(lines, split, -2, -1, None, True)
     else:
       examples += self._load_glue(lines, split, -3, -2, -1, True)
     if self.config.double_unordered and split == "train":
@@ -447,7 +447,7 @@ class Biosses(RegressionTask):
   def _create_examples(self, lines, split):
     examples = []
     if split == "test":
-      examples += self._load_glue(lines, split, -2, -1, None, True)
+      examples += self._load_glue(lines, split, -3, -2, -1, True)
     else:
       examples += self._load_glue(lines, split, -3, -2, -1, True)
     if self.config.double_unordered and split == "train":
