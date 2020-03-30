@@ -1,5 +1,10 @@
 ### BLUE
 
+sbatch --job-name=pm-adv submit-job-m3g-V100.sh pretrain-adv.sh 9e6
+sbatch --job-name=pm-entropy submit-job-m3g-V100.sh pretrain-entropy.sh 9e6
+sbatch --job-name=pm-pos submit-job-m3g-V100.sh pretrain-pos.sh 9e6
+sbatch --job-name=pm-rand submit-job-m3g-V100.sh pretrain-rand.sh 9e6
+
 sbatch --job-name=biosses-base submit-job-m3g-V100.sh eval_biosses.sh base /scratch/da33/trang/masked-lm/models/bert_base_uncased 2903
 sbatch --job-name=biosses-rand submit-job-m3g-V100.sh eval_biosses.sh rand /scratch/da33/trang/masked-lm/models/pubmed/models/pubmed-da-32-random 2903
 sbatch --job-name=biosses-pos submit-job-m3g-V100.sh eval_biosses.sh pos /scratch/da33/trang/masked-lm/models/pubmed/models/pubmed-da-32-pos 2903
