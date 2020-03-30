@@ -514,8 +514,10 @@ class AdversarialPretrainingModel(PretrainingModel):
       log_Z_yes = gather_z_indexes(logZ[:, j + 1, :], left - 1)  # b
       log_q_yes = logp_j + log_Z_yes - log_Z_total
       log_q_no = tf.log(tf.clip_by_value(1 - tf.exp(log_q_yes), 1e-20, 1.0))
+      logit_yes = log_q_yes - log_q_no # logit p = log(p/(1-p))
+      logit_no = log_q_no - log_q_yes
       # draw 2 Gumbel noise and compute action by argmax
-      logits = tf.transpose(tf.stack([log_q_no, log_q_yes]), [1, 0])
+      logits = tf.transpose(tf.stack([logit_no, logit_yes]), [1, 0])
       actions = gumbel.gumbel_softmax(logits)
       action_mask = tf.cast(tf.argmax(actions, 1), dtype=tf.int32)
       no_left_mask = tf.where(tf.greater(left, 0), tf.ones_like(left, dtype=tf.int32),
