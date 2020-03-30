@@ -158,14 +158,14 @@ def print_tokens(inputs: Inputs, inv_vocab, updates_mask=None):
     if token == "[PAD]":
       break
     if pos in pos_to_tokid:
-      token = RED + token + " (" + inv_vocab[pos_to_tokid[pos]] + ")" + ENDC
-      # token = token + " (" + inv_vocab[pos_to_tokid[pos]] + ")"
+      # token = RED + token + " (" + inv_vocab[pos_to_tokid[pos]] + ")" + ENDC
+      token = token + " (" + inv_vocab[pos_to_tokid[pos]] + ")"
       if provided_update_mask:
         assert um == 1
     else:
       if provided_update_mask:
         assert um == 0
-    tag_print = GREEN + " _" + NAMES[tag] + "_ " + ENDC
-    # tag_print = " _" + NAMES[tag] + "_ "
+    # tag_print = GREEN + " _" + NAMES[tag] + "_ " + ENDC
+    tag_print = " _" + NAMES[tag] + "_ "
     text += token + tag_print + " "
   utils.log(tokenization.printable_text(text))
