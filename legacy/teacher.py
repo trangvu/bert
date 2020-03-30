@@ -215,12 +215,12 @@ class TeacherModel(object):
 
       with tf.variable_scope("bernoulli"):
           with tf.variable_scope("transform"):
-              self.action_probs = tf.layers.dense(
+              logits = tf.layers.dense(
                   self.sequence_output,
                   units=1,
-                  activation=get_activation('sigmoid'),
                   kernel_initializer=create_initializer(
                       config.initializer_range))
+              self.action_probs = tf.nn.sigmoid(logits)
               self.action_probs = tf.squeeze(self.action_probs)
 
       # The "pooler" converts the encoded sequence tensor of shape

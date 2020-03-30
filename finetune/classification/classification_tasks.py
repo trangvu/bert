@@ -28,7 +28,7 @@ import configure_finetuning
 from finetune import feature_spec
 from finetune import task
 from finetune.classification import classification_metrics
-from model import tokenization
+from model import tokenization, modeling
 from util import utils
 
 
@@ -487,26 +487,32 @@ class ChemProt(ClassificationTask):
 
   def __init__(self, config: configure_finetuning.FinetuningConfig, tokenizer):
     super(ChemProt, self).__init__(config, "chemprot", tokenizer,
-                               ["CPR:3", "CPR:4", "CPR:5", "CPR:6", "CPR:9", "false"])
+                               ["false", "CPR:3", "CPR:4", "CPR:5", "CPR:6", "CPR:9"])
 
   def _create_examples(self, lines, split):
     if split == "test":
       return self._load_data(lines, split, 1, None, 2, True)
     else:
       return self._load_data(lines, split, 1, None, 2, True)
+
+  def get_scorer(self):
+    return classification_metrics.MultilabelF1Scorer()
 
 class DDI(ClassificationTask):
   """Multi-NLI."""
 
   def __init__(self, config: configure_finetuning.FinetuningConfig, tokenizer):
     super(DDI, self).__init__(config, "ddi", tokenizer,
-                               ["DDI-advise", "DDI-effect", "DDI-int", "DDI-mechanism", 'DDI-false'])
+                               ['DDI-false', "DDI-advise", "DDI-effect", "DDI-int", "DDI-mechanism"])
 
   def _create_examples(self, lines, split):
     if split == "test":
       return self._load_data(lines, split, 1, None, 2, True)
     else:
       return self._load_data(lines, split, 1, None, 2, True)
+
+  def get_scorer(self):
+    return classification_metrics.MultilabelF1Scorer()
 
 class HOC(ClassificationTask):
   """Hallmarks of Cancers."""
@@ -568,12 +574,22 @@ class HOC(ClassificationTask):
     label_ids = features[self.name + "_label_ids"]
     labels = tf.cast(label_ids, tf.float32)
     per_example_loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=labels, logits=logits)
-    loss = tf.reduce_mean(per_example_loss)
+    loss = tf.reduce_mean(per_example_loss, axis=-1)
+    predictions = tf.cast(tf.greater(probabilities, 0.5), tf.int32)
 
+    shape = modeling.get_shape_list(label_ids, expected_rank=2)
+    batch_size = shape[0]
+    true_num_label = int(num_labels / 2)
+
+    oh_predictions = tf.reshape(predictions, [batch_size, true_num_label, 2])
+    predictions = tf.argmax(oh_predictions, axis=-1)
+    oh_label_ids = tf.reshape(label_ids, [batch_size, true_num_label, 2])
+    label_ids = tf.argmax(oh_label_ids, axis=-1)
     outputs = dict(
         loss=loss,
         logits=logits,
-        predictions=tf.argmax(probabilities, axis=-1),
+        predictions=predictions,
+        probabilities = probabilities,
         label_ids=label_ids,
         eid=features[self.name + "_eid"],
     )
@@ -585,4 +601,4 @@ class HOC(ClassificationTask):
             feature_spec.FeatureSpec(self.name + "_label_ids", [num_labels])]
 
   def get_scorer(self):
-    return classification_metrics.F1Scorer()
+    return classification_metrics.MultiClassifierF1Scorer()

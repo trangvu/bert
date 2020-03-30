@@ -91,7 +91,45 @@ class F1Scorer(SentenceLevelScorer):
         ('loss', self.get_loss()),
     ]
 
+class MultilabelF1Scorer(SentenceLevelScorer):
+  def _get_results(self):
+    p = sklearn.metrics.precision_score(y_true=self._true_labels, y_pred=self._preds, average='micro')
+    r = sklearn.metrics.recall_score(y_true=self._true_labels, y_pred=self._preds, average='micro')
+    f1 = sklearn.metrics.f1_score(y_true=self._true_labels, y_pred=self._preds, average='micro')
+    return [
+        ('precision', p),
+        ('recall', r),
+        ('f1', f1),
+        ('loss', self.get_loss()),
+    ]
 
+class MultiClassifierF1Scorer(SentenceLevelScorer):
+    def __init__(self):
+        super(MultiClassifierF1Scorer, self).__init__()
+        self._positive_label = 1
+
+    def _get_results(self):
+        n_correct, n_predicted, n_gold = 0, 0, 0
+        for y_trues, preds in zip(self._true_labels, self._preds):
+            for y_true, pred in zip(y_trues, preds):
+                if pred == self._positive_label:
+                    n_gold += 1
+                    if pred == self._positive_label:
+                        n_predicted += 1
+                        if pred == y_true:
+                            n_correct += 1
+        if n_correct == 0:
+            p, r, f1 = 0, 0, 0
+        else:
+            p = 100.0 * n_correct / n_predicted
+            r = 100.0 * n_correct / n_gold
+            f1 = 2 * p * r / (p + r)
+        return [
+            ('precision', p),
+            ('recall', r),
+            ('f1', f1),
+            ('loss', self.get_loss()),
+        ]
 class MCCScorer(SentenceLevelScorer):
 
   def _get_results(self):
@@ -114,3 +152,4 @@ class RegressionScorer(SentenceLevelScorer):
         ('mse', np.mean(np.square(np.array(self._true_labels) - self._preds))),
         ('loss', self.get_loss()),
     ]
+

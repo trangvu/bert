@@ -228,18 +228,21 @@ class AdversarialPretrainingModel(PretrainingModel):
     # Teacher reward is the -log p(x_S|x;B)
     reward = tf.stop_gradient(tf.reduce_mean(mlm_output.per_example_loss, 1))
     self._baseline = tf.reduce_mean(reward, -1)
+    self._std = tf.math.reduce_std(reward, -1)
 
     # Calculate teacher loss
-    def compute_teacher_loss(log_q, reward, baseline):
+    def compute_teacher_loss(log_q, reward, baseline, std):
+      advantage = tf.abs((reward - baseline)) / std
+      advantage = tf.stop_gradient(advantage)
       # baseline = tf.Print(baseline, [baseline], "Baseline: ")
       # reward = tf.Print(reward, [reward], "Reward: ")
       # reward = tf.stop_gradient(tf.abs(reward - baseline))
       # reward = tf.Print(reward, [reward], "abs Reward: ")
       # log_q = tf.Print(log_q, [log_q], "log_q: ")
-      teacher_loss = tf.reduce_mean(log_q * reward)
+      teacher_loss = tf.reduce_mean(log_q * advantage)
       return teacher_loss
 
-    teacher_loss = tf.cond(coin_toss < 0.5, lambda: compute_teacher_loss(log_q, reward, self._baseline), lambda: tf.constant(0.0))
+    teacher_loss = tf.cond(coin_toss < 0.5, lambda: compute_teacher_loss(log_q, reward, self._baseline, self._std), lambda: tf.constant(0.0))
     # teacher_loss = tf.Print(teacher_loss, [teacher_loss], 'Teacher loss: ')
     self.total_loss = mlm_output.loss + teacher_loss
     self.teacher_loss = teacher_loss

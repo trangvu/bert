@@ -110,7 +110,7 @@ def model_fn_builder(config: configure_finetuning.FinetuningConfig, tasks,
       init_string = ""
       if var.name in initialized_variable_names:
         init_string = ", *INIT_FROM_CKPT*"
-      utils.log("  name = %s, shape = %s%s", var.name, var.shape,
+      utils.logerr("  name = %s, shape = %s%s", var.name, var.shape,
                 init_string)
 
     # Build model for training or prediction
@@ -211,6 +211,7 @@ class ModelRunner(object):
 
   def train(self):
     utils.log("Training for {:} steps".format(self.train_steps))
+    self.train_steps = 50
     self._estimator.train(
         input_fn=self._train_input_fn, max_steps=self.train_steps)
 
@@ -261,7 +262,7 @@ class ModelRunner(object):
             task_name, split, trial))
 
 
-def write_results(config: configure_finetuning.FinetuningConfig, results):
+def write_results(config: configure_finetuning.FinetuningConfig, results, split="dev"):
   """Write evaluation metrics to disk."""
   utils.log("Writing results to", config.results_txt)
   utils.mkdir(config.results_txt.rsplit("/", 1)[0])
@@ -272,7 +273,7 @@ def write_results(config: configure_finetuning.FinetuningConfig, results):
       for task_name, task_results in trial_results.items():
         if task_name == "time" or task_name == "global_step":
           continue
-        results_str += task_name + ": " + " - ".join(
+        results_str += task_name + '-' + split + ": " + " - ".join(
             ["{:}: {:.2f}".format(k, v)
              for k, v in task_results.items()]) + "\n"
     f.write(results_str)
@@ -308,7 +309,7 @@ def run_finetuning(config: configure_finetuning.FinetuningConfig):
     if config.do_eval:
       heading("Run dev set evaluation")
       results.append(model_runner.evaluate())
-      write_results(config, results)
+      write_results(config, results, "dev")
       if config.write_test_outputs and trial <= config.n_writes_test:
         heading("Running on the test set and writing the predictions")
         for task in tasks:
@@ -318,8 +319,8 @@ def run_finetuning(config: configure_finetuning.FinetuningConfig):
             for split in task.get_test_splits():
               model_runner.write_classification_outputs([task], trial, split)
           elif task.name in ["biosses", "ddi", "chemprot", "hoc", "chem", "disease"]:
-              scorer = model_runner.evaluate_task(task, "test", False)
-              utils.log(task.name + " - test set: " + scorer.results_str())
+              results.append(model_runner.test())
+              write_results(config, results, "test")
           elif task.name == "squad":
             scorer = model_runner.evaluate_task(task, "test", False)
             scorer.write_predictions()

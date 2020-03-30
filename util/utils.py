@@ -58,6 +58,10 @@ def log(*args):
   sys.stdout.write(msg + "\n")
   sys.stdout.flush()
 
+def logerr(*args):
+  msg = " ".join(map(str, args))
+  sys.stderr.write(msg + "\n")
+  sys.stderr.flush()
 
 def log_config(config):
   for key, value in sorted(config.__dict__.items()):
