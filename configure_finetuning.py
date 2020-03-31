@@ -54,7 +54,7 @@ class FinetuningConfig(object):
     # writing model outputs to disc
     self.write_test_outputs = False  # whether to write test set outputs,
                                      # currently supported for GLUE + SQuAD 2.0
-    self.n_writes_test = 5  # write test set predictions for the first n trials
+    self.n_writes_test = 10  # write test set predictions for the first n trials
 
     # sizing
     self.max_seq_length = 128

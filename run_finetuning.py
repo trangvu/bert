@@ -295,6 +295,9 @@ def run_finetuning(config: configure_finetuning.FinetuningConfig):
 
   # Train and evaluate num_trials models with different random seeds
   while config.num_trials < 0 or trial <= config.num_trials:
+    heading_info = "model={:}, trial {:}/{:}".format(
+      config.model_name, trial, config.num_trials)
+    heading = lambda msg: utils.heading(msg + ": " + heading_info)
     config.model_dir = generic_model_dir + "_" + str(trial)
     if config.do_train:
       utils.rmkdir(config.model_dir)
