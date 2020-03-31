@@ -211,7 +211,6 @@ class ModelRunner(object):
 
   def train(self):
     utils.log("Training for {:} steps".format(self.train_steps))
-    self.train_steps = 50
     self._estimator.train(
         input_fn=self._train_input_fn, max_steps=self.train_steps)
 
