@@ -76,5 +76,9 @@ def get_task(config: configure_finetuning.FinetuningConfig, task_name,
     return classification_tasks.DDI(config, tokenizer)
   elif task_name == "chemprot":
     return classification_tasks.ChemProt(config, tokenizer)
+  elif task_name == "chem":
+    return tagging_tasks.BC5CDR_Chem(config, tokenizer)
+  elif task_name == "disease":
+    return tagging_tasks.BC5CDR_Disease(config, tokenizer)
   else:
     raise ValueError("Unknown task " + task_name)

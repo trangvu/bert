@@ -254,5 +254,44 @@ class Chunking(TaggingTask):
 
 class NER(TaggingTask):
   """NER task"""
+  def __init__(self, config, name, tokenizer, is_token_level):
+    super(NER, self).__init__(config, name, tokenizer, is_token_level)
+
+  def _get_labeled_sentences(self, split):
+    sentences = []
+    with tf.io.gfile.GFile(os.path.join(self.config.raw_data_dir(self.name),
+                                        split + ".tsv"), "r") as f:
+      sentence = []
+      for line in f:
+        line = line.strip().split()
+        if not line:
+          if sentence:
+            words, tags = zip(*sentence)
+            sentences.append((words, tags))
+            sentence = []
+            if self.config.debug and len(sentences) > 100:
+              return sentences
+          continue
+        if line[0] == "-DOCSTART-":
+          continue
+        word, tag = line[0], line[-1]
+        sentence.append((word, tag))
+    return sentences
+
+class BC5CDR_Chem(NER):
   def __init__(self, config, tokenizer):
-    super(NER, self).__init__(config, "ner", tokenizer, False)
+    super(BC5CDR_Chem, self).__init__(config, "chem", tokenizer, True)
+    labels = ["O", "I", "B"]
+    self._label_mapping = {label: i for i, label in enumerate(labels)}
+
+  def get_scorer(self):
+    return tagging_metrics.IBOEntityLevelF1Scorer(self._get_label_mapping())
+
+class BC5CDR_Disease(NER):
+  def __init__(self, config, tokenizer):
+    super(BC5CDR_Disease, self).__init__(config, "disease", tokenizer, True)
+    labels = ["O", "I", "B"]
+    self._label_mapping = {label: i for i, label in enumerate(labels)}
+
+  def get_scorer(self):
+    return tagging_metrics.IBOEntityLevelF1Scorer(self._get_label_mapping())

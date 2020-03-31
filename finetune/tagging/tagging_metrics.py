@@ -114,3 +114,22 @@ class EntityLevelF1Scorer(F1Scorer):
       self._n_gold += len(sent_spans)
       self._n_predicted += len(span_preds)
     return super(EntityLevelF1Scorer, self)._get_results()
+
+class IBOEntityLevelF1Scorer(F1Scorer):
+  """Computes F1 score for entity-level tasks such as NER."""
+
+  def __init__(self, label_mapping):
+    super(IBOEntityLevelF1Scorer, self).__init__()
+    self._inv_label_mapping = {v: k for k, v in six.iteritems(label_mapping)}
+
+  def _get_results(self):
+    self._n_correct, self._n_predicted, self._n_gold = 0, 0, 0
+    for labels, preds in zip(self._labels, self._preds):
+      sent_spans = set(tagging_utils.get_span_labels(
+          labels, self._inv_label_mapping, with_tag_name=False ))
+      span_preds = set(tagging_utils.get_span_labels(
+          preds, self._inv_label_mapping, with_tag_name=False))
+      self._n_correct += len(sent_spans & span_preds)
+      self._n_gold += len(sent_spans)
+      self._n_predicted += len(span_preds)
+    return super(IBOEntityLevelF1Scorer, self)._get_results()

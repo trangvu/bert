@@ -20,7 +20,7 @@ from __future__ import division
 from __future__ import print_function
 
 
-def get_span_labels(sentence_tags, inv_label_mapping=None):
+def get_span_labels(sentence_tags, inv_label_mapping=None, with_tag_name = True):
   """Go from token-level labels to list of entities (start, end, class)."""
   if inv_label_mapping:
     sentence_tags = [inv_label_mapping[i] for i in sentence_tags]
@@ -28,15 +28,24 @@ def get_span_labels(sentence_tags, inv_label_mapping=None):
   last = 'O'
   start = -1
   for i, tag in enumerate(sentence_tags):
-    pos, _ = (None, 'O') if tag == 'O' else tag.split('-')
+    if with_tag_name:
+      pos, _ = (None, 'O') if tag == 'O' else tag.split('-')
+    else:
+      pos = tag
     if (pos == 'S' or pos == 'B' or tag == 'O') and last != 'O':
-      span_labels.append((start, i - 1, last.split('-')[-1]))
+      if with_tag_name:
+        span_labels.append((start, i - 1, last.split('-')[-1]))
+      else:
+        span_labels.append((start, i - 1))
     if pos == 'B' or pos == 'S' or last == 'O':
       start = i
     last = tag
   if sentence_tags[-1] != 'O':
-    span_labels.append((start, len(sentence_tags) - 1,
+    if with_tag_name:
+      span_labels.append((start, len(sentence_tags) - 1,
                         sentence_tags[-1].split('-')[-1]))
+    else:
+      span_labels.append((start, len(sentence_tags) - 1))
   return span_labels
 
 
