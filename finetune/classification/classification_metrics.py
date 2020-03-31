@@ -97,11 +97,11 @@ class MultilabelF1Scorer(SentenceLevelScorer):
 
     p = sklearn.metrics.precision_score(y_true=self._true_labels, y_pred=self._preds, average='macro')
     r = sklearn.metrics.recall_score(y_true=self._true_labels, y_pred=self._preds, average='macro')
-    f1 = sklearn.metrics.recall_score(y_true=self._true_labels, y_pred=self._preds, average='macro')
+    f1 = sklearn.metrics.f1_score(y_true=self._true_labels, y_pred=self._preds, average='macro')
 
     weighted_p = sklearn.metrics.precision_score(y_true=self._true_labels, y_pred=self._preds, average='weighted')
     weighted_r = sklearn.metrics.recall_score(y_true=self._true_labels, y_pred=self._preds, average='weighted')
-    weighted_f1 = sklearn.metrics.recall_score(y_true=self._true_labels, y_pred=self._preds, average='weighted')
+    weighted_f1 = sklearn.metrics.f1_score(y_true=self._true_labels, y_pred=self._preds, average='weighted')
 
     return [
         ('accuracy', acc),
