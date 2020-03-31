@@ -235,7 +235,9 @@ class ModelRunner(object):
     if return_results:
       utils.log(task.name + '-' + split + ": " + scorer.results_str())
       utils.log()
-      return dict(scorer.get_results())
+      result_dict = dict(scorer.get_results())
+      result_dict['split'] = split
+      return result_dict
     else:
       return scorer
 
@@ -322,6 +324,7 @@ def run_finetuning(config: configure_finetuning.FinetuningConfig):
               scorer = model_runner.evaluate_task(task, "test", False)
               scorer.write_predictions()
               result = dict(scorer.get_results())
+              result['split'] = "test"
               results.append(result)
               write_results(config, results, "test")
           elif task.name == "squad":

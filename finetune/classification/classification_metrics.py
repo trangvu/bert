@@ -93,13 +93,24 @@ class F1Scorer(SentenceLevelScorer):
 
 class MultilabelF1Scorer(SentenceLevelScorer):
   def _get_results(self):
-    p = sklearn.metrics.precision_score(y_true=self._true_labels, y_pred=self._preds, average='micro')
-    r = sklearn.metrics.recall_score(y_true=self._true_labels, y_pred=self._preds, average='micro')
-    f1 = sklearn.metrics.f1_score(y_true=self._true_labels, y_pred=self._preds, average='micro')
+    acc = sklearn.metrics.f1_score(y_true=self._true_labels, y_pred=self._preds, average='micro')
+
+    p = sklearn.metrics.precision_score(y_true=self._true_labels, y_pred=self._preds, average='macro')
+    r = sklearn.metrics.recall_score(y_true=self._true_labels, y_pred=self._preds, average='macro')
+    f1 = sklearn.metrics.recall_score(y_true=self._true_labels, y_pred=self._preds, average='macro')
+
+    weighted_p = sklearn.metrics.precision_score(y_true=self._true_labels, y_pred=self._preds, average='weighted')
+    weighted_r = sklearn.metrics.recall_score(y_true=self._true_labels, y_pred=self._preds, average='weighted')
+    weighted_f1 = sklearn.metrics.recall_score(y_true=self._true_labels, y_pred=self._preds, average='weighted')
+
     return [
-        ('precision', p),
-        ('recall', r),
-        ('f1', f1),
+        ('accuracy', acc),
+        ('macro precision', p),
+        ('macro recall', r),
+        ('macro f1', f1),
+        ('weighted precision', weighted_p),
+        ('weighted recall', weighted_r),
+        ('weighted f1', weighted_f1),
         ('loss', self.get_loss()),
     ]
 
